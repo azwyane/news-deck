@@ -2,7 +2,7 @@ import { useSignal } from "@preact/signals";
 import { hashColor } from "../lib/format";
 import { addStation, mutedStations, normalizeStreamUrl, removeStation, removedStations, reorderStations, restoreStation, toggleMute as toggleStationMute, visibleStations } from "../lib/radio";
 import type { Source } from "../lib/types";
-import { addFeed, allSources, counts, customFeeds, failedSources, feedHealth, hideSource, loadingSources, mutedSources, muteSource, normalizeFeedUrl, refreshSource, removeFeed, removedSources, reorderSources, restoreSource, restoreSources, setView, view } from "../state/store";
+import { addFeed, allSources, counts, customFeeds, failedSources, feedHealth, hideSource, loadingSources, mutedSources, muteSource, normalizeFeedUrl, refreshSource, removeFeed, removedSources, reorderSources, restoreSource, restoreSources, setView, stories, view } from "../state/store";
 import { closePages, notify, openFeedReadFlow, openRadioFlow, sidebarOpen } from "../state/ui";
 
 const QUICK = [
@@ -35,6 +35,7 @@ function move<T>(list: { name: string }[], from: string, to: string, apply: (ord
 function SourceRow({ source, drag }: { source: Source; drag: DragState }) {
   const muted = mutedSources.value.includes(source.name);
   const health = loadingSources.value.has(source.name) ? "…" : failedSources.value.includes(source.name) ? "!" : feedHealth.value[source.name]?.lastOk ? "✓" : "·";
+  const count = stories.value.filter((story) => story.src === source.name).length;
   const classes = ["sidebar-item", view.value === source.name && "active", muted && "muted", drag.name === source.name && "dragging", drag.over === source.name && "drag-over"].filter(Boolean).join(" ");
   return (
     <div
@@ -51,7 +52,7 @@ function SourceRow({ source, drag }: { source: Source; drag: DragState }) {
     >
       <span class="drag-handle" title="Drag to reorder">⠿</span>
       <span class="src-name">{source.name}</span>
-      <span class="count" title={health === "!" ? "Feed failed to load" : health === "…" ? "Fetching…" : health === "✓" ? "Loaded recently" : "Not loaded yet"}>{muted ? "off" : health}</span>
+      <span class="count" title={health === "!" ? "Feed failed to load" : health === "…" ? "Fetching…" : `${count} stories loaded`}>{muted ? "off" : count}</span>
       <button type="button" class="mute-icon" title="Open feed list" onClick={(event) => { event.stopPropagation(); setView(source.name); closePages(); }}>≡</button>
       <button type="button" class="mute-icon" title="Open Read Flow for this feed" onClick={(event) => { event.stopPropagation(); sidebarOpen.value = false; openFeedReadFlow(source.name); }}>⤢</button>
       <button type="button" class="mute-icon" title={(muted ? "Unmute " : "Mute ") + source.name} onClick={(event) => { event.stopPropagation(); muteSource(source.name, !muted); }}>{muted ? "off" : "on"}</button>

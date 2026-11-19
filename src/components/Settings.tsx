@@ -129,8 +129,8 @@ export function Settings() {
         </section>
         <section class="settings-section">
           <h3>Reading Stats</h3>
-          <div class="stats-grid"><div><b>{stats.value.totalRead}</b><span>articles</span></div><div><b>{formatDuration(stats.value.totalTime)}</b><span>reading time</span></div><div><b>{wrapped.topSources.length}</b><span>top sources</span></div><div><b>{liked.value.length}</b><span>saved</span></div></div>
-          <div class="stat-sources">{wrapped.topSources.slice(0, 5).map(([name, count]) => <span key={name}>{name} · {count}</span>)}</div>
+          <div class="stats-grid" id="statsGrid"><div><b>{stats.value.totalRead}</b><span>articles</span></div><div><b>{formatDuration(stats.value.totalTime)}</b><span>reading time</span></div><div><b>{wrapped.topSources.length}</b><span>top sources</span></div><div><b>{liked.value.length}</b><span>saved</span></div></div>
+          <div class="stat-sources" id="statsSources">{wrapped.topSources.length ? <>Most read: {wrapped.topSources.slice(0, 5).map(([name, count]) => <span key={name}>{name} · {count}</span>)}</> : "Start reading to see your stats here."}</div>
           <button type="button" id="wrappedBtn" class="btn-primary" style={{ "margin-top": "12px" }} onClick={() => { closePages(); page.value = "wrapped"; setView("All"); }}>View Monthly Wrapped</button>
         </section>
         <section class="settings-section"><h3>About</h3><p class="settings-desc">News Deck is a client-side RSS reader with on-device AI summaries and a built-in article reader. Your reading data stays on this device.</p></section>

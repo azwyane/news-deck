@@ -35,6 +35,17 @@ export const installPrompt = signal<InstallPromptEvent | null>(null);
 
 let toastTimer: ReturnType<typeof setTimeout> | undefined;
 
+function pushOverlayState(kind: string): void {
+  if (typeof history === "undefined") return;
+  if (history.state?.newsDeckOverlay === kind) return;
+  if (flow.value.open || page.value === "reader") history.replaceState({ newsDeckOverlay: kind }, "");
+  else history.pushState({ newsDeckOverlay: kind }, "");
+}
+
+function clearOverlayState(kind: string): void {
+  if (typeof history !== "undefined" && history.state?.newsDeckOverlay === kind) history.replaceState({}, "");
+}
+
 export function notify(message: string, undo?: () => void): void {
   toast.value = { message, undo };
   clearTimeout(toastTimer);
@@ -91,6 +102,7 @@ export async function openReader(input: Story | string, replace = false): Promis
   }
   notesOpen.value = false;
   overflowOpen.value = false;
+  if (page.value !== "reader") pushOverlayState("reader");
   page.value = "reader";
   startReading();
   try {
@@ -111,7 +123,8 @@ export async function openReader(input: Story | string, replace = false): Promis
   }
 }
 
-export function closeReader(): void {
+export function closeReader(fromPop = false): void {
+  if (!fromPop && typeof history !== "undefined" && history.state?.newsDeckOverlay === "reader") { history.back(); return; }
   const previous = readerHistory.value.pop();
   if (previous) {
     readerHistory.value = [...readerHistory.value];
@@ -119,6 +132,7 @@ export function closeReader(): void {
     return;
   }
   if (readerStory.value) finishReading(readerStory.value.src);
+  clearOverlayState("reader");
   page.value = null;
   readerStory.value = null;
   readerContent.value = null;
@@ -151,13 +165,20 @@ export function openReadFlow(stories: Story[], startLink?: string): void {
     return;
   }
   const index = Math.max(0, stories.findIndex((story) => story.link === startLink));
+  pushOverlayState("read-flow");
   flow.value = { ...flow.value, open: true, mode: "read", stories, index };
   document.body.style.overflow = "hidden";
 }
 
-export function closeReadFlow(): void {
+export function closeReadFlow(fromPop = false): void {
+  if (!fromPop && typeof history !== "undefined" && history.state?.newsDeckOverlay === "read-flow") { history.back(); return; }
+  clearOverlayState("read-flow");
   flow.value = { ...flow.value, open: false, mode: null };
   document.body.style.overflow = "";
+}
+
+export function exitReadFlow(): void {
+  closeReadFlow();
 }
 
 export function openFeedReadFlow(name: string): void {
@@ -167,6 +188,17 @@ export function openFeedReadFlow(name: string): void {
     return;
   }
   openReadFlow(feedStories);
+}
+
+if (typeof addEventListener !== "undefined") {
+  addEventListener("popstate", () => {
+    const kind = history.state?.newsDeckOverlay;
+    if (kind === "reader" || (!kind && page.value === "reader")) closeReader(true);
+    else if (kind === "read-flow" || (!kind && flow.value.mode === "read")) closeReadFlow(true);
+    else if (kind === "radio-flow" || (!kind && flow.value.mode === "radio")) closeRadioFlow(true);
+    else if (page.value) closePages();
+    else if (sidebarOpen.value) sidebarOpen.value = false;
+  });
 }
 
 export function moveFlow(delta: number): void {
@@ -181,11 +213,18 @@ export function openRadioFlow(index: number): void {
     notify("No radio stations available — restore or unmute one first");
     return;
   }
+  pushOverlayState("radio-flow");
   flow.value = { open: true, mode: "radio", stories: [], index: 0, radioIndex: Math.max(0, Math.min(index, visibleStations.value.length - 1)) };
   document.body.style.overflow = "hidden";
 }
 
-export function closeRadioFlow(): void {
+export function closeRadioFlow(fromPop = false): void {
+  if (!fromPop && typeof history !== "undefined" && history.state?.newsDeckOverlay === "radio-flow") { history.back(); return; }
+  clearOverlayState("radio-flow");
   flow.value = { ...flow.value, open: false, mode: null };
   document.body.style.overflow = "";
+}
+
+export function exitRadioFlow(): void {
+  closeRadioFlow();
 }

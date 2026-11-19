@@ -6,7 +6,7 @@ import { playStation, radioPlaying, radioStatus, setVolume, stopRadio, toggleRad
 import { classifyTopic, TOPIC_COLORS } from "../lib/topics";
 import { tts } from "../lib/tts";
 import { archiveStory, isLiked, markRead, toggleLike } from "../state/store";
-import { closeRadioFlow, closeReadFlow, flow, notify, openReader, readerContent } from "../state/ui";
+import { closeRadioFlow, closeReadFlow, exitRadioFlow, exitReadFlow, flow, notify, openReader, readerContent } from "../state/ui";
 
 interface SlideContent { html: string; loading: boolean; failed: boolean }
 
@@ -102,7 +102,7 @@ export function ReadFlow() {
     const observer = new MutationObserver(setHeight);
     document.getElementById("flowPage") && observer.observe(document.getElementById("flowPage")!, { attributes: true, attributeFilter: ["class"] });
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") { event.preventDefault(); closeReadFlow(); }
+      if (event.key === "Escape") { event.preventDefault(); exitReadFlow(); }
       else if (event.key === "ArrowDown" || event.key === "j") { event.preventDefault(); activate(flow.value.index + 1); }
       else if (event.key === "ArrowUp" || event.key === "k") { event.preventDefault(); activate(flow.value.index - 1); }
     };
@@ -131,7 +131,7 @@ export function ReadFlow() {
   return (
     <div id="flowPage" class="on" aria-label="Read Flow">
       <div class="flow-progress" id="flowProgress" style={{ width: `${((flow.value.index + 1) / flow.value.stories.length) * 100}%` }} />
-      <button type="button" class="flow-close" id="flowClose" aria-label="Exit Read Flow" onClick={closeReadFlow}>×</button>
+      <button type="button" class="flow-close" id="flowClose" aria-label="Exit Read Flow" onClick={exitReadFlow}>×</button>
       <div class="flow-dots" id="flowDots"><Dots count={flow.value.stories.length} active={flow.value.index} onPick={activate} /></div>
       <div
         class="flow-stack"
@@ -224,7 +224,7 @@ export function RadioFlow() {
     addEventListener("resize", setHeight);
     globalThis.visualViewport?.addEventListener("resize", setHeight);
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") { event.preventDefault(); closeRadioFlow(); }
+      if (event.key === "Escape") { event.preventDefault(); exitRadioFlow(); }
       else if (event.key === "ArrowDown" || event.key === "j") { event.preventDefault(); activate(flow.value.radioIndex + 1); }
       else if (event.key === "ArrowUp" || event.key === "k") { event.preventDefault(); activate(flow.value.radioIndex - 1); }
       else if (event.key === " ") { event.preventDefault(); toggleRadio(); }
@@ -247,7 +247,7 @@ export function RadioFlow() {
 
   return (
     <div id="radioFlowPage" class="on" aria-label="Radio Flow">
-      <button type="button" class="flow-close" id="radioFlowClose" aria-label="Exit radio" onClick={closeRadioFlow}>×</button>
+      <button type="button" class="flow-close" id="radioFlowClose" aria-label="Exit radio" onClick={exitRadioFlow}>×</button>
       <div class="flow-dots" id="radioFlowDots"><Dots count={visibleStations.value.length} active={flow.value.radioIndex} onPick={activate} /></div>
       <div
         class="radio-stack"

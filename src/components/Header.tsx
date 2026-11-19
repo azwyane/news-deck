@@ -9,11 +9,19 @@ export function Header() {
   const online = useSignal(typeof navigator === "undefined" || navigator.onLine);
   useEffect(() => {
     const update = () => { online.value = navigator.onLine; };
+    let lastY = 0;
+    const onScroll = () => {
+      const y = scrollY;
+      document.getElementById("hdr")?.classList.toggle("hide", y > 80 && y > lastY);
+      lastY = y;
+    };
     addEventListener("online", update);
     addEventListener("offline", update);
+    addEventListener("scroll", onScroll, { passive: true });
     return () => {
       removeEventListener("online", update);
       removeEventListener("offline", update);
+      removeEventListener("scroll", onScroll);
     };
   }, []);
 

@@ -3,7 +3,7 @@ import { useEffect } from "preact/hooks";
 import { tts } from "../lib/tts";
 import { refresh } from "../state/store";
 import { closePages, flow, installPrompt, notify, openReader, page, showShortcuts, sidebarOpen, toast, ttsStoryLink } from "../state/ui";
-import { dismissInstall } from "../state/prefs";
+import { dismissInstall, installDismissed } from "../state/prefs";
 
 export function Toast() {
   const current = toast.value;
@@ -25,6 +25,32 @@ export function MiniPlayer() {
       <button type="button" class="mp-btn" aria-label="Pause/Resume" onClick={() => tts.toggle()}>{tts.paused.value ? "▶" : "❚❚"}</button>
       <button type="button" class="mp-btn mp-stop" aria-label="Stop" onClick={() => tts.stop()}>×</button>
       <div class="mp-progress" style={{ width: `${tts.progress.value}%` }} />
+    </div>
+  );
+}
+
+export function InstallPromptBar() {
+  const visible = useSignal(false);
+  useEffect(() => {
+    if (installDismissed()) return;
+    const timer = setTimeout(() => { visible.value = true; }, 2200);
+    return () => clearTimeout(timer);
+  }, []);
+  const accept = async () => {
+    const event = installPrompt.value;
+    if (!event) { visible.value = false; page.value = "install"; return; }
+    await event.prompt();
+    const result = await event.userChoice;
+    if (result.outcome === "accepted") notify("Installing News Deck…");
+    installPrompt.value = null;
+    dismissInstall();
+    visible.value = false;
+  };
+  return (
+    <div id="installBar" class={visible.value ? "show" : ""}>
+      <div class="grow"><b>Install News Deck</b><div class="faint">Fullscreen reading &amp; offline cache</div></div>
+      <button type="button" class="btn-primary" id="installYes" onClick={() => void accept()}>Install</button>
+      <button type="button" class="btn-secondary" id="installNo" onClick={() => { dismissInstall(); visible.value = false; }}>Not now</button>
     </div>
   );
 }
@@ -94,7 +120,7 @@ export function Shortcuts() {
             <kbd>Esc</kbd><span>Close reader / overlays</span>
             <kbd>?</kbd><span>Show this help</span>
           </div>
-          <p style={{ "margin-top": "12px", "font-size": "11px", color: "var(--text-3)" }}>Swipe left/right on cards to archive. Long-press or right-click for context menu.</p>
+          <p style={{ "margin-top": "12px", "font-size": "11px", color: "var(--text-3)" }}>Swipe a card left or right to archive. Long-press or right-click for context menu.</p>
         </div>
       </div>
     </div>

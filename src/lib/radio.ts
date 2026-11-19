@@ -34,6 +34,7 @@ export const allStations = computed(() => {
 export const visibleStations = computed(() => allStations.value.filter((station) => !mutedStations.value.has(station.name)));
 export const radioPlaying = signal(false);
 export const radioStatus = signal("Tap play to start");
+export const activeStationName = signal<string | null>(null);
 
 export function persistRadio(): void {
   writeJSON(KEYS.radio, { custom: customStations.value, muted: [...mutedStations.value], order: stationOrder.value, removed: [...removedStations.value], removedDefs: removedStationDefs.value });
@@ -175,6 +176,7 @@ export async function playStation(station: RadioStation): Promise<void> {
   if (!audio) return;
   manualPause = false;
   stopPlayback();
+  activeStationName.value = station.name;
   const isHls = station.url.includes(".m3u8");
   radioStatus.value = "Connecting…";
   try {
@@ -244,6 +246,7 @@ export function stopRadio(): void {
   manualPause = false;
   stopPlayback();
   radioPlaying.value = false;
+  activeStationName.value = null;
 }
 
 export function setVolume(value: number): void {

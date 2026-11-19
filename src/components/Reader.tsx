@@ -1,6 +1,6 @@
 import { useSignal } from "@preact/signals";
 import { useEffect, useRef } from "preact/hooks";
-import { findConnections, socraticSummary } from "../lib/ai";
+import { aiState, findConnections, socraticSummary } from "../lib/ai";
 import { estimateReadTime } from "../lib/markdown";
 import { tts } from "../lib/tts";
 import { addNote, annotations, deleteNote, findStory, isLiked, stories, toggleLike } from "../state/store";
@@ -9,6 +9,10 @@ import { assistantContext, closeReader, navigateReader, notify, openPage, openRe
 
 export function Reader() {
   const bodyRef = useRef<HTMLDivElement>(null);
+  const pageRef = useRef<HTMLDivElement>(null);
+  const progress = useSignal(0);
+  const elapsed = useSignal(0);
+  const autoLinked = useSignal("");
   const selection = useSignal("");
   const summaryBusy = useSignal(false);
   const connectionsBusy = useSignal(false);
@@ -54,7 +58,37 @@ export function Reader() {
     noteComposer.value = false;
     summaryBusy.value = false;
     connectionsBusy.value = false;
+    autoLinked.value = "";
   }, [readerStory.value?.link]);
+
+  useEffect(() => {
+    const node = pageRef.current;
+    if (!node || !readerStory.value) return;
+    const onScroll = () => {
+      const max = node.scrollHeight - node.clientHeight;
+      progress.value = max > 0 ? Math.min(100, Math.round((node.scrollTop / max) * 100)) : 100;
+    };
+    node.addEventListener("scroll", onScroll, { passive: true });
+    onScroll();
+    const started = Date.now();
+    const timer = setInterval(() => { elapsed.value = Math.floor((Date.now() - started) / 1000); }, 1000);
+    return () => { node.removeEventListener("scroll", onScroll); clearInterval(timer); };
+  }, [readerStory.value?.link]);
+
+  useEffect(() => {
+    const link = readerStory.value?.link;
+    const content = readerContent.value;
+    if (!link || autoLinked.value === link || !content || content.text.length < 120) return;
+    autoLinked.value = link;
+    void (async () => {
+      try {
+        const answer = await findConnections(readerStory.value?.title || "", content.text, stories.value.map((item) => item.title));
+        if (readerStory.value?.link !== link) return;
+        const matches = stories.value.filter((item) => answer.toLowerCase().includes(item.title.toLowerCase()) && item.link !== link).slice(0, 3);
+        readerConnections.value = { text: answer, links: matches };
+      } catch { /* manual retry remains available */ }
+    })();
+  }, [readerContent.value, readerStory.value?.link]);
 
   if (!story) return null;
   const text = readerContent.value?.text || "";
@@ -137,10 +171,10 @@ export function Reader() {
   };
 
   return (
-    <div id="readerPage" class="on" role="dialog" aria-label="Article reader">
-      <div id="readProg" style={{ width: `${tts.progress.value}%` }} />
+    <div id="readerPage" ref={pageRef} class="on" role="dialog" aria-label="Article reader">
+      <div id="readProg" style={{ width: `${progress.value}%` }} />
       <div class="reader-bar">
-        <button type="button" id="readerClose" aria-label="Close reader" onClick={closeReader}>←</button>
+        <button type="button" id="readerClose" aria-label="Close reader" onClick={() => closeReader()}>←</button>
         <div class="reader-bar-meta"><span id="readerSrc">{story.src}</span></div>
         <div class="reader-actions">
           <button type="button" id="readerStar" aria-label="Save" title="Save" onClick={() => toggleLike(story.link)}>{isLiked(story.link) ? "★" : "☆"}</button>
@@ -155,7 +189,7 @@ export function Reader() {
             <span id="readerPos" class="rm-pos">{position}</span>
             <button type="button" id="readerNext" class="rm-icon" aria-label="Next story" title="Next (j or →)" onClick={() => navigateReader(1)}>›</button>
             <span id="readerTime" class="rm-time">{text ? estimateReadTime(text) : ""}</span>
-            <span class="rm-time">{readerHistory.value.length ? `${readerHistory.value.length} back` : ""}</span>
+            <span class="rm-time" id="readerTimer">{Math.floor(elapsed.value / 60)}m {String(elapsed.value % 60).padStart(2, "0")}s{readerHistory.value.length ? ` · ${readerHistory.value.length} back` : ""}</span>
           </div>
           <button type="button" id="readerListen" class="rm-icon" aria-label="Listen" title="Read aloud" onClick={() => tts.toggle()}>{tts.playing.value && !tts.paused.value ? "❚❚" : "▶"}</button>
           <button type="button" id="readerSummarize" class="rm-icon" aria-label="Summarize" title="Socratic summary" onClick={() => void summarize()}>✦</button>
@@ -169,9 +203,13 @@ export function Reader() {
           const anchor = (event.target as HTMLElement).closest("a");
           if (!anchor) return;
           const target = findStory(anchor.href);
-          if (target) { event.preventDefault(); void openReader(target); }
+          event.preventDefault();
+          if (target) { void openReader(target); return; }
+          if (!/^https?:$/.test(new URL(anchor.href, location.href).protocol)) return;
+          void openReader({ title: "Linked article", link: anchor.href, src: "Linked", desc: "", date: new Date() });
         }} />
         {readerSummary.value && <div id="readerSummary" class="reader-summary" dangerouslySetInnerHTML={{ __html: readerSummary.value.replace(/</g, "&lt;") }} />}
+        {aiState.value.state === "failed" && <details class="ai-err"><summary>Technical details</summary><pre>{aiState.value.report || aiState.value.progress}</pre><button type="button" id="aiCopy" class="x" onClick={(event) => { void navigator.clipboard?.writeText(aiState.value.report || aiState.value.progress).then(() => { (event.target as HTMLButtonElement).textContent = "Copied ✓"; }).catch(() => { (event.target as HTMLButtonElement).textContent = "Copy failed — select the text above"; }); }}>Copy report</button></details>}
         {readerConnections.value && <div class="conn-panel"><h4>Story connections</h4><div class="conn-text">{readerConnections.value.text}</div><div id="connLinks">{readerConnections.value.links.map((item) => <button type="button" key={item.link} onClick={() => void openReader(item)}>{item.title}</button>)}</div></div>}
         {(story.hn || readerCommentsLoading.value || readerComments.value.length > 0) && <div class="conn-panel hn-comments"><h4>Hacker News discussion</h4>{readerCommentsLoading.value && <div class="faint">Loading comments…</div>}{readerComments.value.map((comment, index) => <p key={index}>{comment}</p>)}<a href={story.hn} target="_blank" rel="noopener">View all comments ↗</a></div>}
         <nav class="reader-foot" aria-label="More stories"><button type="button" id="footPrev" onClick={() => navigateReader(-1)}>← Previous</button><button type="button" id="footNext" onClick={() => navigateReader(1)}>Next →</button></nav>

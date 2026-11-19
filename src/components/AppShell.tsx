@@ -1,15 +1,14 @@
 import { useEffect, useRef } from "preact/hooks";
-import { summarizeText } from "../lib/ai";
 import { safeUrl } from "../lib/format";
 import { bindAudio } from "../lib/radio";
 import { archiveStory, cacheNote, cacheSavedAt, findStory, isArchived, isLiked, isRead, markRead, markUnread, refreshMode, refresh, toggleLike, unarchiveStory, updateStatus, visibleStories } from "../state/store";
 import { applyPrefs } from "../state/prefs";
-import { cardMenu, closeCardMenu, closePages, closeRadioFlow, closeReadFlow, closeReader, deckCursor, flow, installPrompt, navigateReader, notesOpen, notify, openReader, overflowOpen, page, showShortcuts, sidebarOpen, type InstallPromptEvent } from "../state/ui";
+import { cardMenu, closeCardMenu, closePages, closeReader, deckCursor, exitRadioFlow, exitReadFlow, flow, installPrompt, navigateReader, notesOpen, notify, openReader, overflowOpen, page, showShortcuts, sidebarOpen, type InstallPromptEvent } from "../state/ui";
 import { Header } from "./Header";
 import { TabsBar } from "./TabsBar";
 import { Feed } from "./Feed";
 import { Sidebar } from "./Sidebar";
-import { Footer, InstallBar, MiniPlayer, PasteRead, PullToRefresh, Shortcuts, Toast } from "./Extras";
+import { Footer, InstallBar, InstallPromptBar, MiniPlayer, PasteRead, PullToRefresh, Shortcuts, Toast } from "./Extras";
 import { Assistant, RadioFlow, ReadFlow, Reader, Settings, Wrapped } from "./Overlays";
 
 export function AppShell() {
@@ -68,7 +67,7 @@ export function AppShell() {
         }
         else if (page.value) closePages();
         else if (sidebarOpen.value) sidebarOpen.value = false;
-        else if (flow.value.open) { if (flow.value.mode === "read") closeReadFlow(); else closeRadioFlow(); }
+        else if (flow.value.open) { if (flow.value.mode === "read") exitReadFlow(); else exitRadioFlow(); }
         return;
       }
       if (page.value === "reader") {
@@ -96,14 +95,20 @@ export function AppShell() {
   const menuStory = cardMenu.value ? findStory(cardMenu.value.link) : undefined;
   const summarizeMenuStory = async () => {
     if (!menuStory) return;
+    const link = menuStory.link;
     closeCardMenu();
-    notify("Summarizing…");
-    try {
-      const summary = await summarizeText(`${menuStory.title}\n${menuStory.desc || ""}`);
-      notify(summary.slice(0, 180));
-    } catch (error) {
-      notify(String((error as Error).message || error));
+    void openReader(link).then(() => { document.getElementById("readerSummarize")?.click(); });
+  };
+
+  const shareMenuStory = async () => {
+    if (!menuStory) return;
+    const link = menuStory.link;
+    const title = menuStory.title;
+    closeCardMenu();
+    if (navigator.share) {
+      try { await navigator.share({ title, url: link }); return; } catch { /* fall back to clipboard */ }
     }
+    try { await navigator.clipboard?.writeText(link); notify("Link copied"); } catch { notify("Couldn't copy — use Open original"); }
   };
 
   return (
@@ -122,6 +127,7 @@ export function AppShell() {
       <Wrapped />
       <PasteRead />
       <InstallBar />
+      <InstallPromptBar />
       <Shortcuts />
       <Toast />
       <MiniPlayer />
@@ -131,7 +137,7 @@ export function AppShell() {
         {!isArchived(menuStory.link) && <button type="button" data-act="ctx-archive" role="menuitem" onClick={() => { archiveStory(menuStory.link); notify("Archived", () => unarchiveStory(menuStory.link)); closeCardMenu(); }}>Archive</button>}
         <hr />
         <button type="button" data-act="ctx-summarize" role="menuitem" onClick={() => void summarizeMenuStory()}>Summarize</button>
-        <button type="button" data-act="ctx-share" role="menuitem" onClick={() => { void navigator.share?.({ title: menuStory.title, url: menuStory.link }).catch(() => undefined); closeCardMenu(); }}>Share link</button>
+        <button type="button" data-act="ctx-share" role="menuitem" onClick={() => void shareMenuStory()}>Share link</button>
         <button type="button" data-act="ctx-open" role="menuitem" onClick={() => { window.open(menuStory.link, "_blank", "noopener"); closeCardMenu(); }}>Open original</button>
       </div>}
       <audio id="radioAudio" ref={radioRef} preload="none" />

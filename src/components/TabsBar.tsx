@@ -14,7 +14,7 @@ export function TabsBar() {
       <button type="button" class={view.value === "Liked" ? "tab-btn active" : "tab-btn"} data-view="Liked" onClick={() => setView("Liked")}>Liked <span class="tab-count">{counts.value.liked}</span></button>
       <button type="button" class={view.value === "Read" ? "tab-btn active" : "tab-btn"} data-view="Read" onClick={() => setView("Read")}>Read <span class="tab-count">{counts.value.read}</span></button>
       <button type="button" class={view.value === "Notes" ? "tab-btn active" : "tab-btn"} data-view="Notes" onClick={() => setView("Notes")}>Notes <span class="tab-count">{counts.value.notes}</span></button>
-      <button type="button" class="tab-btn radio-tab" data-view="Radio" title="Open Radio Flow" onClick={() => openRadioFlow(0)}>
+      <button type="button" class="tab-btn radio-tab" data-view="Radio" title="Radio stations" onClick={() => setView("Radio")}>
         <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="2" /><path d="M16.24 7.76a6 6 0 0 1 0 8.49M7.76 16.24a6 6 0 0 1 0-8.49" /><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 19.07a10 10 0 0 1 0-14.14" /></svg>
         Radio <span class="tab-count">{counts.value.radio}</span>
       </button>
