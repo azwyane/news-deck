@@ -20,7 +20,7 @@ export function MiniPlayer() {
   if (!tts.playing.value) return null;
   return (
     <div id="miniPlayer" class="show" role="status" aria-live="polite">
-      <span class="mp-icon">🔊</span>
+      <span class="mp-icon">♫</span>
       <span class="mp-title" title={tts.title.value} onClick={() => { const link = ttsStoryLink.value; if (link) void openReader(link); }}>{tts.title.value}</span>
       <button type="button" class="mp-btn" aria-label="Pause/Resume" onClick={() => tts.toggle()}>{tts.paused.value ? "▶" : "❚❚"}</button>
       <button type="button" class="mp-btn mp-stop" aria-label="Stop" onClick={() => tts.stop()}>×</button>
@@ -94,7 +94,7 @@ export function PasteRead() {
       <div class="modal" style={{ "max-width": "440px" }}>
         <div class="modal-header"><h2>Read any article</h2><button class="modal-close" id="pasteReadClose" onClick={closePages}>×</button></div>
         <div class="modal-body">
-          <p style={{ "font-size": "13px", color: "var(--text-2)", "margin-bottom": "12px" }}>Paste any article URL — News Deck will fetch and display it in the reader, just like a feed story.</p>
+          <p style={{ "font-size": "var(--ui-font-size)", color: "var(--text-2)", "margin-bottom": "12px" }}>Paste any article URL — News Deck will fetch and display it in the reader, just like a feed story.</p>
           <div style={{ display: "flex", gap: "8px" }}>
             <input id="pasteReadUrl" placeholder="https://example.com/article" style={{ flex: 1, "min-width": 0 }} autocapitalize="off" autocomplete="off" spellcheck={false} value={url.value} onInput={(event) => { url.value = (event.target as HTMLInputElement).value; }} onKeyDown={(event) => { if (event.key === "Enter") read(); }} />
             <button type="button" id="pasteReadGo" class="btn-primary" onClick={read}>Read</button>
@@ -111,7 +111,7 @@ export function Shortcuts() {
     <div id="shortcutsOverlay" class="overlay on" role="dialog" aria-label="Keyboard shortcuts">
       <div class="modal" style={{ "max-width": "420px" }}>
         <div class="modal-header"><h2>Keyboard shortcuts</h2><button class="modal-close" id="shortcutsClose" onClick={() => { showShortcuts.value = false; }}>×</button></div>
-        <div class="modal-body" style={{ "font-size": "13px", "line-height": "1.8" }}>
+        <div class="modal-body" style={{ "font-size": "var(--ui-font-size)", "line-height": "var(--ui-line-height)" }}>
           <div style={{ display: "grid", "grid-template-columns": "auto 1fr", gap: "4px 16px" }}>
             <kbd>/</kbd><span>Focus search</span>
             <kbd>j / →</kbd><span>Next article in reader</span>
@@ -120,7 +120,7 @@ export function Shortcuts() {
             <kbd>Esc</kbd><span>Close reader / overlays</span>
             <kbd>?</kbd><span>Show this help</span>
           </div>
-          <p style={{ "margin-top": "12px", "font-size": "11px", color: "var(--text-3)" }}>Swipe a card left or right to archive. Long-press or right-click for context menu.</p>
+          <p style={{ "margin-top": "12px", "font-size": "calc(var(--ui-font-size)*.8)", color: "var(--text-3)" }}>Swipe a card left or right to archive. Long-press or right-click for context menu.</p>
         </div>
       </div>
     </div>
@@ -134,7 +134,7 @@ export function InstallBar() {
       <div class="modal">
         <div class="modal-header"><h2>Install News Deck</h2><button class="modal-close" onClick={() => { dismissInstall(); closePages(); }}>×</button></div>
         <div class="modal-body">
-          <p style={{ "font-size": "13px", color: "var(--text-2)" }}>{installPrompt.value ? "Install News Deck on this device for fullscreen reading and your cached deck." : "Open this page in Chrome or Safari, use the browser menu, then choose Add to Home screen or Install app."}</p>
+          <p style={{ "font-size": "var(--ui-font-size)", color: "var(--text-2)" }}>{installPrompt.value ? "Install News Deck on this device for fullscreen reading and your cached deck." : "Open this page in Chrome or Safari, use the browser menu, then choose Add to Home screen or Install app."}</p>
           {installPrompt.value && <button type="button" class="btn-primary" onClick={() => { const event = installPrompt.value; if (!event) return; void event.prompt(); void event.userChoice.then((result) => { if (result.outcome === "accepted") notify("Installing News Deck…"); installPrompt.value = null; dismissInstall(); closePages(); }); }}>Install app</button>}
           <button type="button" class="btn-secondary" onClick={() => { dismissInstall(); closePages(); }}>Not now</button>
         </div>

@@ -68,12 +68,22 @@ git status --short
 
 - `reviveStory()` / `asDate()` normalize persisted story dates. Keep `findStory()` able to look in `stories`, `liked`, `readStories`, and `archived`.
 - `unreadOnly` defaults to `false`. Do not hide read stories by default.
+- `openReader()` pins the opened link in memory so it stays visible in the current unread-only deck after `markRead()`; clear pins on refresh, clear filters, mark-all-read, or mark-unread.
 - Hidden built-in sources live in `removedSources`; removed custom feeds also need `removedFeeds` so they can be restored.
 - `visibleStories` excludes muted/hidden sources and returns `[]` for the Radio view.
 - Source counts in the sidebar should reflect loaded stories, not health glyphs.
 - Restore actions must unmute as well as re-add, otherwise restored sources stay invisible.
 - Reader progress uses scroll position; `#readerTimer` is the session timer. TTS progress is a different signal and should not drive the scroll bar.
+- `#readerClose` and Escape exit the reader entirely; `‹`/`›` step through `readerHistory`/`readerForward` first, then `readerList` for the current source/All view.
+- Deck navigation uses `openReader(story, { replace: true })`; links followed from article text use `{ follow: true }` so the read path is preserved.
+- Reader tools are grouped under `#readerOverflow` ("Tools"); summary, relations, ask, notes, print, font size, and speed live in that sheet.
+- Universal typography is driven by `--ui-font-size`, `--ui-font-weight`, `--ui-line-height`, and `--ui-icon-scale` from `prefs.ts`; add new text/icon styling through those variables in `patch.css`, not inline TSX styles.
+- Custom fonts apply globally via `html[data-font="user"] *`; theme and typography are included in JSON backups.
+- HN discussions resolve their external URL via Algolia before extraction; a comments fallback must set `ArticleResult.source === "discussion"` so `.reader-notice` labels it.
+- Feed cards open the reader when the bare card is clicked; interactive children, long-press menu clicks, context menu clicks, and post-swipe clicks must not open it.
+- Reader selection uses the app's anchored `#selToolbar`; on coarse pointers, capture the text and clear the native selection so Android's toolbar does not replace it.
 - `sourceSummary` in `Feed.tsx` is a module-level `signal()` from `@preact/signals`, not a hook; calling `useSignal()` outside a component breaks the app mount.
+- Overlay scrolling is centralized in `ui.ts`: lock `html`/`body`, reset the active scroller, then restore `scrollY` on close. Do not write `overflow` styles directly in components.
 
 ## Never do
 

@@ -25,7 +25,7 @@ This directory is the maintained knowledge base for `au-news-deck`. The root [`a
 | Assistant | `src/components/Assistant.tsx` | Chat with deck/article context and deterministic phrase tools |
 | Feed state | `src/state/store.ts` | Stories, filters, views, read/like/archive/note, refresh, source actions |
 | UI state | `src/state/ui.ts` | Reader/flow/overlay state and browser history handling |
-| Preferences | `src/state/prefs.ts` | Theme, font, night mode, font size, install dismissal |
+| Preferences | `src/state/prefs.ts` | Theme, font, night mode, universal typography, reader font size, install dismissal |
 | Radio | `src/lib/radio.ts` | Stations, playback, HLS, volume, persistence |
 | AI | `src/lib/ai.ts` | Server/OpenAI-compatible mode and embedded local model |
 | Build | `scripts/build.ts` | Inlines JS/CSS/template/manifest into `dist/index.html` |

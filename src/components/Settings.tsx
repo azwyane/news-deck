@@ -4,7 +4,7 @@ import { KEYS } from "../lib/constants";
 import { downloadFile, makeBackup, makeOpml, parseBackup, parseOpml } from "../lib/data";
 import { formatDuration, stats, wrappedData } from "../lib/stats";
 import { readText, writeText } from "../lib/storage";
-import { cycleNight, fontActive, fontUrl, setFont, setFontUrl, theme, toggleTheme } from "../state/prefs";
+import { cycleNight, fontActive, fontSize, fontUrl, night, resetTypography, setFont, setFontUrl, setReaderFontSize, setUiFontWeight, setUiFontSize, setUiIconScale, setUiLineHeight, theme, toggleTheme, uiFontWeight, uiFontSize, uiIconScale, uiLineHeight } from "../state/prefs";
 import { addFeed, annotations, archived, customFeeds, liked, mutedSources, readStories, readTimes, refresh, refreshMode, removedFeeds, removedSources, restoreSources, reviveStory, setView, sourceOrder, stories, unreadOnly } from "../state/store";
 import { closePages, notify, page } from "../state/ui";
 
@@ -37,7 +37,7 @@ export function Settings() {
 
   const exportBackup = () => {
     downloadFile(`news-deck-backup-${new Date().toISOString().slice(0, 10)}.json`, makeBackup({
-      settings: { aiServer: getAIConfig(), theme: readText(KEYS.theme, ""), muted: mutedSources.value, refreshMode: refreshMode.value, unreadOnly: unreadOnly.value },
+      settings: { aiServer: getAIConfig(), theme: readText(KEYS.theme, ""), muted: mutedSources.value, refreshMode: refreshMode.value, unreadOnly: unreadOnly.value, typography: { uiFont: uiFontSize.value, fontWeight: uiFontWeight.value, lineHeight: uiLineHeight.value, iconScale: uiIconScale.value, readerFont: fontSize.value, fontActive: fontActive.value, fontUrl: fontUrl.value } },
       sources: { customFeeds: customFeeds.value, order: sourceOrder.value, removed: removedSources.value, removedFeeds: removedFeeds.value },
       liked: liked.value,
       read: readStories.value,
@@ -57,6 +57,14 @@ export function Settings() {
       if (data.settings?.muted) mutedSources.value = data.settings.muted;
       if (data.settings?.refreshMode) refreshMode.value = data.settings.refreshMode;
       if (typeof data.settings?.unreadOnly === "boolean") unreadOnly.value = data.settings.unreadOnly;
+      const typography = data.settings?.typography;
+      if (typeof typography?.uiFont === "number") setUiFontSize(typography.uiFont);
+      if (typeof typography?.fontWeight === "number") setUiFontWeight(typography.fontWeight);
+      if (typeof typography?.lineHeight === "number") setUiLineHeight(typography.lineHeight);
+      if (typeof typography?.iconScale === "number") setUiIconScale(typography.iconScale);
+      if (typeof typography?.readerFont === "number") setReaderFontSize(typography.readerFont);
+      if (typeof typography?.fontUrl === "string") setFontUrl(typography.fontUrl);
+      if (typeof typography?.fontActive === "string") setFont(typography.fontActive);
       if (data.sources?.customFeeds) customFeeds.value = data.sources.customFeeds;
       if (data.sources?.order) sourceOrder.value = data.sources.order;
       if (data.sources?.removed) removedSources.value = data.sources.removed;
@@ -110,21 +118,32 @@ export function Settings() {
         <section class="settings-section">
           <h3>Appearance</h3>
           <div class="settings-row"><span>Theme</span><button type="button" id="settingsThemeBtn" class="btn-secondary" onClick={toggleTheme}>Switch theme ({theme.value})</button></div>
-          <div class="settings-row" style={{ "margin-top": "10px" }}><span>Font</span><button type="button" id="fontHandBtn" class="btn-secondary" onClick={() => setFont(fontActive.value === "hand" ? "" : "hand")}>Hand</button></div>
-          <div style={{ "margin-top": "10px" }}><label class="settings-label">Custom font URL (.woff2 / .woff / .ttf)</label><div style={{ display: "flex", gap: "8px" }}><input id="customFontUrl" placeholder="https://example.com/font.woff2" value={customFont.value} onInput={(event) => { customFont.value = (event.target as HTMLInputElement).value; }} style={{ flex: 1, "min-width": 0 }} /><button type="button" id="customFontApply" class="btn-primary" onClick={() => { setFontUrl(customFont.value); setFont(customFont.value); }}>Apply</button></div><button type="button" id="customFontClear" class="btn-secondary" style={{ "margin-top": "8px", width: "100%" }} onClick={() => { customFont.value = ""; setFontUrl(""); setFont(""); }}>Reset to system font</button></div>
+          <div class="settings-row"><span>Font</span><button type="button" id="fontHandBtn" class="btn-secondary" onClick={() => setFont(fontActive.value === "hand" ? "" : "hand")}>Hand</button></div>
+          <div class="settings-typography">
+            <label class="settings-label" for="customFontUrl">Custom font URL (.woff2 / .woff / .ttf)</label>
+            <div class="settings-font-url"><input id="customFontUrl" placeholder="https://example.com/font.woff2" value={customFont.value} onInput={(event) => { customFont.value = (event.target as HTMLInputElement).value; }} /><button type="button" id="customFontApply" class="btn-primary" onClick={() => { setFontUrl(customFont.value); setFont(customFont.value); }}>Apply</button></div>
+            <button type="button" id="customFontClear" class="btn-secondary" onClick={() => { customFont.value = ""; setFontUrl(""); setFont(""); }}>Reset to system font</button>
+          </div>
+          <div class="settings-subtitle">Universal typography</div>
+          <div class="settings-row"><label for="uiFontRange">Interface text</label><input id="uiFontRange" type="range" min="11" max="20" step="1" value={uiFontSize.value} onInput={(event) => setUiFontSize(Number((event.target as HTMLInputElement).value))} /><span class="settings-value">{uiFontSize.value}px</span></div>
+          <div class="settings-row"><label for="uiWeightSelect">Text weight</label><select id="uiWeightSelect" value={String(uiFontWeight.value)} onChange={(event) => setUiFontWeight(Number((event.target as HTMLSelectElement).value))}><option value="300">Light</option><option value="400">Regular</option><option value="500">Medium</option><option value="600">Semibold</option><option value="700">Bold</option></select></div>
+          <div class="settings-row"><label for="uiLineRange">Line height</label><input id="uiLineRange" type="range" min="1.2" max="2" step="0.1" value={uiLineHeight.value} onInput={(event) => setUiLineHeight(Number((event.target as HTMLInputElement).value))} /><span class="settings-value">{uiLineHeight.value.toFixed(1)}</span></div>
+          <div class="settings-row"><label for="uiIconRange">Icon size</label><input id="uiIconRange" type="range" min="0.85" max="1.25" step="0.05" value={uiIconScale.value} onInput={(event) => setUiIconScale(Number((event.target as HTMLInputElement).value))} /><span class="settings-value">{Math.round(uiIconScale.value * 100)}%</span></div>
+          <div class="settings-row"><label for="readerFontRange">Reader text</label><input id="readerFontRange" type="range" min="14" max="26" step="1" value={fontSize.value} onInput={(event) => setReaderFontSize(Number((event.target as HTMLInputElement).value))} /><span class="settings-value">{fontSize.value}px</span></div>
+          <div class="settings-buttons"><button type="button" id="typographyReset" class="btn-secondary" onClick={resetTypography}>Reset typography</button></div>
         </section>
         <section class="settings-section">
           <h3>Refresh</h3>
           <p class="settings-desc">In manual mode the app loads from cache on visit — tap ↻ to fetch new stories.</p>
           <div class="settings-row"><span>Mode</span><select id="refreshModeSelect" value={refreshMode.value} onChange={(event) => { refreshMode.value = (event.target as HTMLSelectElement).value; }}><option value="visit">On every visit</option><option value="manual">Manual only</option><option value="interval">Every 30 minutes</option></select></div>
-          <div class="settings-row" style={{ "margin-top": "10px" }}><span>Night reading mode</span><button type="button" id="nightModeBtn" class="btn-secondary" onClick={() => notify(`Night mode: ${cycleNight()}`)}>Cycle</button></div>
+          <div class="settings-row" style={{ "margin-top": "10px" }}><span>Night reading mode</span><button type="button" id="nightModeBtn" class="btn-secondary" onClick={() => notify(`Night mode: ${cycleNight()}`)}>{night.value}</button></div>
         </section>
         <section class="settings-section">
           <h3>Data</h3>
           <div class="data-buttons"><button type="button" id="exportBtn" class="btn-secondary" onClick={exportBackup}>Export</button><button type="button" id="importBtn" class="btn-secondary" onClick={() => fileRef.value?.click()}>Import</button></div>
           <input type="file" ref={(element) => { fileRef.value = element; }} accept="application/json" hidden onChange={(event) => void importBackup((event.target as HTMLInputElement).files?.[0])} />
           <div style={{ "margin-top": "12px" }}><label class="settings-label">OPML feeds</label><div class="data-buttons"><button type="button" id="opmlExportBtn" class="btn-secondary" onClick={() => { downloadFile("news-deck-feeds.opml", makeOpml(customFeeds.value, new Set(removedSources.value)), "text/xml"); notify("OPML exported"); }}>Export OPML</button><button type="button" id="opmlImportBtn" class="btn-secondary" onClick={() => opmlRef.value?.click()}>Import OPML</button></div><input type="file" ref={(element) => { opmlRef.value = element; }} accept=".opml,.xml,application/xml" hidden onChange={(event) => void importOpml((event.target as HTMLInputElement).files?.[0])} /></div>
-          <div style={{ "margin-top": "12px" }}><label class="settings-label">Bookmarklet</label><p class="settings-desc">Drag this link to your bookmarks bar.</p><a id="bookmarkletLink" href={bookmarklet} style={{ display: "inline-block", padding: "8px 14px", background: "var(--accent)", color: "#fff", borderRadius: "8px", fontSize: "13px", fontWeight: 600, textDecoration: "none" }}>Read in News Deck</a></div>
+          <div style={{ "margin-top": "12px" }}><label class="settings-label">Bookmarklet</label><p class="settings-desc">Drag this link to your bookmarks bar.</p><a id="bookmarkletLink" href={bookmarklet} style={{ display: "inline-block", padding: "8px 14px", background: "var(--accent)", color: "#fff", borderRadius: "8px", fontSize: "var(--ui-font-size)", fontWeight: "var(--ui-font-weight)", textDecoration: "none" }}>Read in News Deck</a></div>
           {!!removedSources.value.length && <button type="button" class="btn-secondary" style={{ "margin-top": "12px" }} onClick={() => { restoreSources(); notify("Hidden sources restored"); }}>Restore {removedSources.value.length} hidden source(s)</button>}
         </section>
         <section class="settings-section">

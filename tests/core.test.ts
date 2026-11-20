@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import "./setup";
 import { escapeHtml, hashColor, relativeTime, safeUrl, tokenize } from "../src/lib/format";
 import { classifyTopic, clusterStories, makeBriefing } from "../src/lib/topics";
+import { applyPrefs, night } from "../src/state/prefs";
 import type { Story } from "../src/lib/types";
 
 const story = (title: string, src: string, date = new Date()): Story => ({ title, src, date, link: `https://example.com/${encodeURIComponent(title)}`, desc: "" });
@@ -24,6 +25,22 @@ describe("format helpers", () => {
   });
   test("produces stable colors", () => {
     expect(hashColor("ABC News")).toBe(hashColor("ABC News"));
+  });
+});
+
+describe("preferences", () => {
+  test("applies literal night mode values", () => {
+    const original = night.value;
+    try {
+      for (const value of ["off", "auto", "on"] as const) {
+        night.value = value;
+        applyPrefs();
+        expect(document.documentElement.dataset.night).toBe(value);
+      }
+    } finally {
+      night.value = original;
+      applyPrefs();
+    }
   });
 });
 

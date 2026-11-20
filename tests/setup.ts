@@ -9,4 +9,5 @@ Object.assign(globalThis, {
   HTMLElement: window.HTMLElement,
   location: window.location,
   navigator: window.navigator,
+  localStorage: window.localStorage,
 });

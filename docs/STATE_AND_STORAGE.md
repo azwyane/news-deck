@@ -6,7 +6,7 @@
 | --- | --- |
 | `src/state/store.ts` | Stories, sources, filters, views, read/like/archive/notes, refresh, status |
 | `src/state/ui.ts` | Page/reader/flow overlays, card menu, toast, install state, browser history |
-| `src/state/prefs.ts` | Theme, font, night mode, reader font size, install dismissal |
+| `src/state/prefs.ts` | Theme, font, night mode, universal typography, reader font size, install dismissal |
 | `src/lib/stats.ts` | Reading sessions and Wrapped data |
 | `src/lib/radio.ts` | Stations, playback, volume, HLS, radio persistence |
 | `src/lib/ai.ts` | AI config and `aiState` |
@@ -20,6 +20,7 @@ Persistent:
 - `customFeeds`, `sourceOrder`, `removedSources`, `removedFeeds`, `mutedSources`
 - `liked`, `archived`, `readStories`, `readTimes`, `annotations`, `feedHealth`
 - `refreshMode`, `unreadOnly`
+- `sessionPinned` is memory-only: links opened this session stay visible under `unreadOnly` until refresh, clear filters, mark-all-read, or mark-unread
 
 Runtime/cache:
 
@@ -66,7 +67,11 @@ Defined in `src/lib/constants.ts`. Treat as a compatibility contract.
 | `aussieNewsDeck.radio.v1` | Radio custom/muted/order/removed state JSON |
 | `aussieNewsDeck.unreadOnly` | Boolean JSON |
 | `aussieNewsDeck.fs` | Reader font size plain text |
-| `aussieNewsDeck.articles.v1` | Article markdown cache, max 40 entries |
+| `aussieNewsDeck.uiFont` | Universal interface text size plain text |
+| `aussieNewsDeck.uiWeight` | Universal font weight plain text |
+| `aussieNewsDeck.uiLineHeight` | Universal line height plain text |
+| `aussieNewsDeck.uiIconScale` | Universal icon scale plain text |
+| `aussieNewsDeck.articles.v1` | Article markdown cache, max 80 entries |
 | `aussieTheme` | Theme plain text |
 | `aussieFontActive` | Font mode/URL plain text |
 | `aussieFontUrl` | Custom font URL plain text |
@@ -112,7 +117,8 @@ Reader also has an in-memory `readerHistory` stack for prev/next. Its stored `sc
 `applyPrefs()` sets:
 
 - `html.dataset.theme` to `"light"` or deletes it.
-- `html.dataset.night` to `"auto"` or `"on"`; `"off"` is never written.
+- `html.dataset.night` to the literal `"off"`, `"auto"`, or `"on"` value so CSS can tint every surface consistently.
 - `html.dataset.font` to `"hand"` or `"user"`.
 - `--rfs` from reader font size, clamped 14–26.
-- A `<style>@font-face</style>` when the custom font URL starts with `http`.
+- `--ui-font-size`, `--ui-font-weight`, `--ui-line-height`, and `--ui-icon-scale` for universal typography.
+- A `<style>@font-face</style>` when the custom font URL starts with `http`, applied through `html[data-font="user"] *`.

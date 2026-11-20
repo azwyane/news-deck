@@ -1,9 +1,10 @@
 import { useEffect, useRef } from "preact/hooks";
+import { copyText } from "../lib/clipboard";
 import { safeUrl } from "../lib/format";
 import { bindAudio } from "../lib/radio";
 import { archiveStory, cacheNote, cacheSavedAt, findStory, isArchived, isLiked, isRead, markRead, markUnread, refreshMode, refresh, toggleLike, unarchiveStory, updateStatus, visibleStories } from "../state/store";
 import { applyPrefs } from "../state/prefs";
-import { cardMenu, closeCardMenu, closePages, closeReader, deckCursor, exitRadioFlow, exitReadFlow, flow, installPrompt, navigateReader, notesOpen, notify, openReader, overflowOpen, page, showShortcuts, sidebarOpen, type InstallPromptEvent } from "../state/ui";
+import { cardMenu, closeCardMenu, closePages, deckCursor, exitRadioFlow, exitReadFlow, exitReader, flow, installPrompt, navigateReader, notesOpen, notify, openReader, overflowOpen, page, showShortcuts, sidebarOpen, type InstallPromptEvent } from "../state/ui";
 import { Header } from "./Header";
 import { TabsBar } from "./TabsBar";
 import { Feed } from "./Feed";
@@ -63,7 +64,7 @@ export function AppShell() {
         else if (page.value === "reader") {
           if (notesOpen.value) notesOpen.value = false;
           else if (overflowOpen.value) overflowOpen.value = false;
-          else closeReader();
+          else exitReader();
         }
         else if (page.value) closePages();
         else if (sidebarOpen.value) sidebarOpen.value = false;
@@ -108,7 +109,8 @@ export function AppShell() {
     if (navigator.share) {
       try { await navigator.share({ title, url: link }); return; } catch { /* fall back to clipboard */ }
     }
-    try { await navigator.clipboard?.writeText(link); notify("Link copied"); } catch { notify("Couldn't copy — use Open original"); }
+    const copied = await copyText(link);
+    notify(copied ? "Link copied" : "Couldn't copy — use Open original");
   };
 
   return (

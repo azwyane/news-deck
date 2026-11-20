@@ -12,8 +12,8 @@
 Prompt helpers:
 
 - `summarizeText()` — general summary.
-- `socraticSummary()` — Reader summary button.
-- `findConnections()` — Reader story connections.
+- `socraticSummary()` — Reader Tools → Summary.
+- `findConnections()` — Reader Tools → Find relations.
 - `chatAboutArticle()` — Assistant context prompt.
 
 ## Server mode
@@ -48,17 +48,22 @@ Config key: `aussieAiServer`, shape `{ url, model, apiKey? }`.
 - `unmute <exact source name>`
 - any prompt containing `summar`
 
-Everything else calls `askAI()` with either `assistantContext` or up to 15 current deck headlines.
+Home chat calls `askAI()`/`summarizeText()` with up to 15 current deck headlines. Reader "Ask AI" is a separate article-only mode: it calls `askAIChat()` with the fetched article text as a system context plus prior user/assistant turns, so follow-up questions stay tied to that article. Deck tools and WebMCP-style tool calling are not used in article mode.
 
 ## Article extraction
 
-`src/lib/article.ts` resolves full text in this order:
+`src/lib/article.ts` resolves full text with full-request deadlines and staged progress:
 
-1. Jina reader (`r.jina.ai`) — cached on success.
-2. Readability through proxy — cached on success.
-3. HN-discussion Jina fallback — not cached.
+1. For HN discussion URLs, resolve the linked external URL through the shared Algolia `/items/{id}` cache before extraction.
+2. Jina reader (`r.jina.ai`) and Readability through the proxies race in parallel; the first successful extraction wins and losing requests are aborted.
+3. Failures are coalesced for a short window and cached as transient failures.
+4. HN-discussion Jina fallback is still available when article extraction fails.
 
-The markdown cache is stored under `aussieNewsDeck.articles.v1` and capped at 40 entries by `fetchedAt`.
+`loadArticle(url, discussionUrl?, { signal, onStage })` accepts an `AbortSignal` so `ui.openReader()` can cancel stale loads. `readerLoadingStage` feeds the visible loading text. Successful article text is cached under the target URL and aliases such as the original HN link.
+
+`ArticleResult.source` is `"article"` for extracted article text and `"discussion"` for the HN fallback. `ui.readerArticleSource` drives `.reader-notice`, so comments are never silently presented as the linked article.
+
+The markdown cache is stored under `aussieNewsDeck.articles.v1` and capped at 80 entries by `fetchedAt`.
 
 `src/lib/sanitize.ts` sanitizes article HTML before `articleToFragment()` injects it into the reader or flows. It removes dangerous tags/attributes, forces `rel="noopener noreferrer"` on links, and makes images lazy/no-referrer.
 
@@ -86,8 +91,8 @@ TTS progress is separate from reader scroll progress. `#readProg` must use the r
 
 Behavior:
 
-- The Radio tab shows a station grid from `visibleStations`.
-- Clicking a grid card calls `playStation(station)` then `openRadioFlow(index)`.
+- The Radio tab calls `startRadioFlow()`, opening the flow at `activeStationName` if it is still visible, otherwise the first visible station.
+- `openRadioFlow(index)` starts that station when needed; sidebar station selection and the contextual Radio button use the same path.
 - `activeStationName` drives play/pause UI and mini-player state.
 - Native HLS is used when available; otherwise HLS.js is loaded from CDN.
 - Autoplay failures surface as `"Tap play to start"`.

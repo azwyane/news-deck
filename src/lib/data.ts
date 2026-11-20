@@ -5,7 +5,7 @@ export interface Backup {
   version: number;
   app: string;
   exportedAt: string;
-  settings: { aiServer: AIConfig | null; theme: string | null; muted: string[]; refreshMode?: string; unreadOnly?: boolean };
+  settings: { aiServer: AIConfig | null; theme: string | null; muted: string[]; refreshMode?: string; unreadOnly?: boolean; typography?: { uiFont?: number; fontWeight?: number; lineHeight?: number; iconScale?: number; readerFont?: number; fontActive?: string; fontUrl?: string } };
   sources: { customFeeds: Source[]; order: string[]; removed: string[]; removedFeeds?: Source[] };
   liked: Story[];
   read: Story[];

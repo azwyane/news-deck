@@ -37,8 +37,17 @@ export function normalizeServerUrl(value: string): string {
   return url;
 }
 
-function messagesFor(prompt: string): { role: string; content: string }[] {
-  return [{ role: "system", content: AI_SYSTEM }, { role: "user", content: prompt }];
+export interface AIChatMessage {
+  role: "system" | "user" | "assistant";
+  content: string;
+}
+
+function withSystem(messages: AIChatMessage[]): AIChatMessage[] {
+  return [{ role: "system", content: AI_SYSTEM }, ...messages];
+}
+
+function messagesFor(prompt: string): AIChatMessage[] {
+  return [{ role: "user", content: prompt }];
 }
 
 async function request(url: string, options: RequestInit, timeout: number): Promise<Response> {
@@ -81,13 +90,13 @@ function cleanText(value: string): string {
     .trim();
 }
 
-async function serverChat(config: AIConfig, prompt: string, maxTokens: number, onChunk?: (chunk: string, all: string) => void): Promise<string> {
+async function serverChat(config: AIConfig, messages: AIChatMessage[], maxTokens: number, onChunk?: (chunk: string, all: string) => void): Promise<string> {
   const body = JSON.stringify({
     model: config.model,
     max_tokens: maxTokens,
     temperature: 0.3,
     stream: !!onChunk,
-    messages: messagesFor(prompt),
+    messages: withSystem(messages),
     chat_template_kwargs: { enable_thinking: false },
   });
   let response: Response;
@@ -307,10 +316,14 @@ async function initLocalAI(): Promise<void> {
 }
 
 export async function askAI(prompt: string, maxTokens = 300, onChunk?: (chunk: string, all: string) => void): Promise<string> {
+  return askAIChat([{ role: "user", content: prompt }], maxTokens, onChunk);
+}
+
+export async function askAIChat(messages: AIChatMessage[], maxTokens = 300, onChunk?: (chunk: string, all: string) => void): Promise<string> {
   const config = getAIConfig();
-  if (config?.url) return serverChat(config, prompt, maxTokens, onChunk);
+  if (config?.url) return serverChat(config, messages, maxTokens, onChunk);
   await initLocalAI();
-  const result = await dispatch({ type: "generate", messages: messagesFor(prompt), opts: { max_new_tokens: maxTokens, repetition_penalty: 1.1 } }, onChunk ? (text) => onChunk(text, text) : undefined);
+  const result = await dispatch({ type: "generate", messages: withSystem(messages), opts: { max_new_tokens: maxTokens, repetition_penalty: 1.1 } }, onChunk ? (text) => onChunk(text, text) : undefined);
   return extractGenerated(result.out);
 }
 
@@ -326,7 +339,7 @@ export async function testAIConfig(config: AIConfig): Promise<{ ok: boolean; mod
   const chat = await request(`${config.url}/v1/chat/completions`, {
     method: "POST",
     headers: headers(config, true),
-    body: JSON.stringify({ model: config.model, max_tokens: 5, temperature: 0, stream: false, messages: messagesFor("Reply with the single word: ok") }),
+    body: JSON.stringify({ model: config.model, max_tokens: 5, temperature: 0, stream: false, messages: withSystem(messagesFor("Reply with the single word: ok")) }),
   }, 30000);
   if (!chat.ok) throw new Error(`POST returned HTTP ${chat.status}`);
   return { ok: true, models, message: `Connected ✓ ${models.length} model(s): ${models.slice(0, 4).join(", ")} · chat POST works` };

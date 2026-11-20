@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import "./setup";
-import { dedupeStories, parseFeedXml, storyKey } from "../src/lib/feeds";
+import { dedupeStories, fetchTextWithTimeout, parseFeedXml, storyKey } from "../src/lib/feeds";
 import { sanitizeHtml, stripTags } from "../src/lib/sanitize";
 import { makeOpml, parseOpml } from "../src/lib/data";
 import type { Story } from "../src/lib/types";
@@ -26,6 +26,28 @@ describe("feed parsing", () => {
     ] as Story[];
     expect(storyKey(items[0])).toBe("https://example.com/a");
     expect(dedupeStories(items)).toHaveLength(1);
+  });
+});
+
+describe("fetch timeouts", () => {
+  test("times out while reading a hanging response body", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () => ({
+      ok: true,
+      status: 200,
+      text: () => new Promise<string>(() => undefined),
+    })) as unknown as typeof fetch;
+    try {
+      let message = "";
+      try {
+        await fetchTextWithTimeout("https://example.com/hanging", 10);
+      } catch (error) {
+        message = String((error as Error).message || error);
+      }
+      expect(message).toContain("Timeout after");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });
 

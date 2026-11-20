@@ -36,7 +36,14 @@ export const annotations = persistent<Record<string, Note[]>>(KEYS.annotations, 
 export const feedHealth = persistent<Record<string, FeedHealth>>(KEYS.feedHealth, {});
 export const refreshMode = signal<string>(readJSON<string>(KEYS.refreshMode, "visit"));
 export const unreadOnly = signal(readJSON<boolean>(KEYS.unreadOnly, false));
+export const sessionPinned = signal<string[]>([]);
 effect(() => writeJSON(KEYS.unreadOnly, unreadOnly.value));
+
+export function pinStory(link: string): void {
+  if (sessionPinned.value.includes(link)) return;
+  sessionPinned.value = [...sessionPinned.value, link];
+}
+
 effect(() => writeJSON(KEYS.refreshMode, refreshMode.value));
 
 export const allSources = computed(() => {
@@ -136,6 +143,7 @@ export async function refresh(force = false): Promise<void> {
   const list = activeSources.value;
   refreshing.value = true;
   failedSources.value = [];
+  sessionPinned.value = [];
   cacheNote.value = "";
   loadingSources.value = new Set(list.map((source) => source.name));
   if (!["All", "Liked", "Archived"].includes(view.value) && !list.some((source) => source.name === view.value)) view.value = "All";
@@ -256,7 +264,7 @@ export const visibleStories = computed<Story[]>(() => {
   }
   let list = stories.value.filter((story) => isRecent(story) && !isArchived(story.link) && !mutedSources.value.includes(story.src) && !removedSources.value.includes(story.src));
   if (currentView !== "All") list = list.filter((story) => story.src === currentView);
-  if (unreadOnly.value) list = list.filter((story) => !isRead(story.link));
+  if (unreadOnly.value) list = list.filter((story) => !isRead(story.link) || sessionPinned.value.includes(story.link));
   if (topicFilter.value) list = list.filter((story) => classifyTopic(story.title, story.desc) === topicFilter.value);
   list = list.filter((story) => matchesSearch(story, term));
   if (sort.value === "new") list.sort((a, b) => b.date.getTime() - a.date.getTime());
@@ -293,6 +301,7 @@ export function clearFilters(): void {
   topicFilter.value = null;
   unreadOnly.value = false;
   search.value = "";
+  sessionPinned.value = [];
 }
 
 export function toggleTopic(topic: string): void {
@@ -312,6 +321,7 @@ export function markUnread(link: string): void {
   delete times[link];
   readTimes.value = times;
   readStories.value = readStories.value.filter((story) => story.link !== link);
+  sessionPinned.value = sessionPinned.value.filter((item) => item !== link);
 }
 
 export function markAllRead(links: string[]): number {
@@ -327,6 +337,7 @@ export function markAllRead(links: string[]): number {
   }
   readTimes.value = times;
   readStories.value = read;
+  sessionPinned.value = [];
   return added;
 }
 

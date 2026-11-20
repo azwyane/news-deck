@@ -32,11 +32,14 @@ Current baseline: `bun run check` passes, `bun test` reports 12 pass / 0 fail / 
 
 Committed tests:
 
-- `tests/core.test.ts` — `escapeHtml`, `safeUrl`, `tokenize`, `relativeTime`, `hashColor`, `classifyTopic`, `clusterStories`, `makeBriefing`.
-- `tests/feeds.test.ts` — RSS/Atom parsing, dedupe, sanitizer, OPML.
+- `tests/core.test.ts` — format helpers, topics, literal night-mode dataset values.
+- `tests/feeds.test.ts` — RSS/Atom parsing, dedupe, body-read timeouts, sanitizer, OPML.
+- `tests/reader.test.ts` — reader loading replacement, scroll locking, selection capture, primary reader actions, direct Radio tab flow.
+- `tests/clipboard.test.ts` — clipboard API and fallback.
+- `tests/ai-chat.test.ts` — article chat request shape.
 - `tests/setup.ts` — happy-dom globals.
 
-Not covered by committed tests: component rendering/events, state persistence, build output, AI, radio/HLS, TTS, article extraction/cache, stats/Wrapped, history/popstate, refresh orchestration, and fetch failures.
+Not covered by committed tests: build output, AI streaming, radio/HLS playback, TTS output, article extraction provider results, stats/Wrapped rendering, and refresh orchestration.
 
 ## DOM smoke checks
 
@@ -74,7 +77,7 @@ Useful seeding keys are in [`STATE_AND_STORAGE.md`](./STATE_AND_STORAGE.md#local
 ### Change flow or overlay behavior
 
 1. Read [`PITFALLS_AND_DEBT.md`](./PITFALLS_AND_DEBT.md#flow-and-history).
-2. Keep `flow.mode`, `history.state.newsDeckOverlay`, body overflow lock, and close functions in sync.
+2. Keep `flow.mode`, `history.state.newsDeckOverlay`, the shared overlay scroll lock in `ui.ts`, and close functions in sync.
 3. Use `exitReadFlow()` / `exitRadioFlow()` for user-initiated closes so Back works.
 4. Use internal `closeReadFlow()` / `closeRadioFlow()` for programmatic transitions that should not pop history.
 
@@ -83,6 +86,7 @@ Useful seeding keys are in [`STATE_AND_STORAGE.md`](./STATE_AND_STORAGE.md#local
 1. Check the existing class contract in [`UI_MAP.md`](./UI_MAP.md#css-layering).
 2. Prefer adding a scoped rule in `src/patch.css`.
 3. Verify all states: default, active, muted, loading, error, overlay open/closed.
+4. For typography, change the `--ui-*` variables in `prefs.ts` and their consumers in `patch.css`; avoid new inline `font-size`/`font-weight` styles in TSX.
 
 ## Documentation duty
 

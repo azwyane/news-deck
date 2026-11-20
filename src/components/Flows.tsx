@@ -1,6 +1,7 @@
 import { useSignal } from "@preact/signals";
 import { useEffect } from "preact/hooks";
 import { articleToFragment, loadArticle } from "../lib/article";
+import { copyText } from "../lib/clipboard";
 import { escapeHtml, hashColor, relativeTime } from "../lib/format";
 import { playStation, radioPlaying, radioStatus, setVolume, stopRadio, toggleRadio, visibleStations } from "../lib/radio";
 import { classifyTopic, TOPIC_COLORS } from "../lib/topics";
@@ -30,7 +31,7 @@ function shareStory(title: string, link: string): void {
     void navigator.share({ title, url: link }).catch(() => undefined);
     return;
   }
-  void navigator.clipboard?.writeText(link).then(() => notify("Link copied")).catch(() => notify("Couldn't copy — use Original ↗"));
+  void copyText(link).then((copied) => notify(copied ? "Link copied" : "Couldn't copy — use Original ↗"));
 }
 
 export function ReadFlow() {
@@ -276,14 +277,14 @@ export function RadioFlow() {
         <article class={`radio-slide active${playing ? " playing" : ""}${dragging.value ? " dragging" : ""}`} data-idx={flow.value.radioIndex} style={{ transform: dragging.value ? `translateY(${dragY.value * 0.5}px)` : "" }}>
           <div class="radio-slide-bg" />
           <div class="radio-slide-content">
-            <span class="radio-slide-icon">📻</span>
+            <span class="radio-slide-icon">◉</span>
             <h2 class="radio-slide-name">{station.name}</h2>
             {station.desc && <p class="radio-slide-desc">{station.desc}</p>}
             <span class="radio-slide-cat">{station.category || "Radio"}</span>
             <div class="radio-eq" aria-hidden="true"><span /><span /><span /><span /><span /><span /></div>
             <button type="button" class="radio-play-btn" aria-label={isActive ? "Pause" : "Play"} data-action={isActive ? "pause" : "play"} onClick={(event) => { event.stopPropagation(); if (isActive) toggleRadio(); else { activeStation.value = station.name; void playStation(station); } }}>{isActive ? "❚❚" : "▶"}</button>
             <div class="radio-volume-row">
-              <span>🔊</span>
+              <span>♫</span>
               <input type="range" min="0" max="100" value={volume.value} aria-label="Volume" onInput={(event) => { volume.value = Number((event.target as HTMLInputElement).value); setVolume(volume.value / 100); }} />
             </div>
             <div class={`radio-status${error ? " error" : ""}`}><span class="dot" /><span class="status-text">{radioStatus.value}</span></div>

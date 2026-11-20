@@ -1,6 +1,6 @@
 import { useSignal } from "@preact/signals";
 import { useEffect, useRef } from "preact/hooks";
-import { aiState, askAI, summarizeText } from "../lib/ai";
+import { aiState, askAIChat, summarizeText, type AIChatMessage } from "../lib/ai";
 import { renderMarkdownSafe } from "../lib/markdown";
 import { TOPIC_COLORS } from "../lib/topics";
 import { clearFilters, mutedSources, muteSource, setView, stories, topicFilter, unreadOnly, visibleStories } from "../state/store";
@@ -10,9 +10,11 @@ interface Message { role: "user" | "assistant"; text: string }
 
 export function Assistant() {
   const open = typeof page !== "undefined" && page.value === "assistant";
+  const article = assistantContext.value;
   const input = useSignal("");
   const busy = useSignal(false);
   const messages = useSignal<Message[]>([{ role: "assistant", text: "Ask me to find, filter, mute, or summarize what's in your deck." }]);
+  const history = useSignal<AIChatMessage[]>([]);
   const chatRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -27,6 +29,16 @@ export function Assistant() {
     }
     node.scrollTop = node.scrollHeight;
   }, [open, messages.value]);
+
+  useEffect(() => {
+    if (!open) return;
+    const context = assistantContext.value;
+    history.value = [];
+    messages.value = [{
+      role: "assistant",
+      text: context ? `Discussing: "${context.title}". Ask questions about this article only.` : "Ask me to find, filter, mute, or summarize what's in your deck.",
+    }];
+  }, [open, assistantContext.value?.title]);
 
   useEffect(() => {
     if (!open) return;
@@ -99,17 +111,25 @@ export function Assistant() {
     if (!question || busy.value) return;
     input.value = "";
     messages.value = [...messages.value, { role: "user", text: question }];
-    if (runTool(question)) return;
+    const context = assistantContext.value;
+    if (!context && runTool(question)) return;
+    const promptHistory: AIChatMessage[] = [...history.value, { role: "user", content: question }];
+    history.value = promptHistory;
     busy.value = true;
     reply("Thinking…");
     const index = messages.value.length - 1;
     try {
-      const article = assistantContext.value;
-      const context = article
-        ? `Article: ${article.title}\n${article.text.slice(0, 12000)}`
-        : `Current deck:\n${visibleStories.value.slice(0, 15).map((story) => `- ${story.title} (${story.src})`).join("\n") || "(empty)"}`;
+      const system: AIChatMessage = context
+        ? {
+            role: "system",
+            content: `Answer the user's questions using only the article below. If the answer is not in the article, say so. Keep follow-up answers tied to this same article. Plain text only.\n\nArticle: ${context.title}\n${context.text.slice(0, 12000)}`,
+          }
+        : {
+            role: "system",
+            content: `You are the News Deck assistant. Use the current deck context when relevant. Plain text only.\n\nCurrent deck:\n${visibleStories.value.slice(0, 15).map((story) => `- ${story.title} (${story.src})`).join("\n") || "(empty)"}`,
+          };
       let all = "";
-      const answer = await askAI(`${context}\n\nQuestion: ${question}`, 300, (_chunk, text) => {
+      const answer = await askAIChat([system, ...promptHistory], 320, (_chunk, text) => {
         all = text;
         const next = [...messages.value];
         next[index] = { role: "assistant", text: all };
@@ -118,27 +138,36 @@ export function Assistant() {
       const next = [...messages.value];
       next[index] = { role: "assistant", text: answer };
       messages.value = next;
+      history.value = [...promptHistory, { role: "assistant", content: answer }];
     } catch (error) {
+      const text = String((error as Error).message || error);
       const next = [...messages.value];
-      next[index] = { role: "assistant", text: String((error as Error).message || error) };
+      next[index] = { role: "assistant", text };
       messages.value = next;
+      history.value = [...promptHistory, { role: "assistant", content: text }];
     } finally {
       busy.value = false;
     }
   };
 
   return (
-    <div id="assistantPage" class="on" role="dialog" aria-label="AI Assistant">
-      <div class="assistant-bar"><button type="button" id="assistantClose" aria-label="Close assistant" onClick={closePages}>←</button><span class="assistant-title">Assistant</span><span class="assistant-status" id="assistantStatus">{aiState.value.state === "loading" ? aiState.value.progress : aiState.value.state === "failed" ? "AI unavailable" : ""}</span></div>
+    <div id="assistantPage" class={`on ${article ? "article-mode" : "deck-mode"}`} role="dialog" aria-label="AI Assistant">
+      <div class="assistant-bar"><button type="button" id="assistantClose" aria-label="Close assistant" onClick={() => { assistantContext.value = null; closePages(); }}>←</button><span class="assistant-title">{article ? `Article · ${article.title}` : "Assistant"}</span><span class="assistant-status" id="assistantStatus">{aiState.value.state === "loading" ? aiState.value.progress : aiState.value.state === "failed" ? "AI unavailable" : ""}</span></div>
       <div class="assistant-body">
         <div id="assistantChat" role="log" aria-live="polite" ref={chatRef} />
         <div class="assistant-suggest" id="assistantSuggest">
-          <button type="button" onClick={() => { input.value = "Summarize my deck"; void send(); }}>Summarize my deck</button>
-          <button type="button" onClick={() => { input.value = "Show Politics"; void send(); }}>Show Politics</button>
-          <button type="button" onClick={() => { input.value = "Unread only"; void send(); }}>Unread only</button>
+          {article ? <>
+            <button type="button" onClick={() => { input.value = "What are the key points?"; void send(); }}>Key points</button>
+            <button type="button" onClick={() => { input.value = "What changed or happened?"; void send(); }}>What happened?</button>
+            <button type="button" onClick={() => { input.value = "Why does this matter?"; void send(); }}>Why it matters</button>
+          </> : <>
+            <button type="button" onClick={() => { input.value = "Summarize my deck"; void send(); }}>Summarize my deck</button>
+            <button type="button" onClick={() => { input.value = "Show Politics"; void send(); }}>Show Politics</button>
+            <button type="button" onClick={() => { input.value = "Unread only"; void send(); }}>Unread only</button>
+          </>}
         </div>
         <form class="assistant-form" id="assistantForm" onSubmit={(event) => { event.preventDefault(); void send(); }}>
-          <input id="assistantInput" placeholder="Ask the assistant to find, summarize, or filter stories…" autocomplete="off" autofocus aria-label="Message" value={input.value} onInput={(event) => { input.value = (event.target as HTMLInputElement).value; }} />
+          <input id="assistantInput" placeholder={article ? "Ask about this article only…" : "Ask the assistant to find, summarize, or filter stories…"} autocomplete="off" autofocus aria-label="Message" value={input.value} onInput={(event) => { input.value = (event.target as HTMLInputElement).value; }} />
           <button type="submit" id="assistantSend" disabled={busy.value}>Send</button>
         </form>
       </div>

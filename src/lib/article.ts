@@ -1,7 +1,7 @@
 import { Readability } from "@mozilla/readability";
-import { KEYS, PROXIES } from "./constants";
-import { fetchWithTimeout, htmlToText } from "./feeds";
-import { normalizeError } from "./format";
+import { HN_LINKS, KEYS, PROXIES } from "./constants";
+import { fetchHNItem, fetchTextWithTimeout, htmlToText, isAbortError } from "./feeds";
+import { normalizeError, safeUrl } from "./format";
 import { readJSON, writeJSON } from "./storage";
 import { renderMarkdownSafe } from "./markdown";
 import { sanitizeHtml } from "./sanitize";
@@ -9,12 +9,32 @@ import { sanitizeHtml } from "./sanitize";
 interface CachedArticle {
   markdown: string;
   title?: string;
+  source?: "article" | "discussion";
   fetchedAt: number;
 }
 
-const LIMIT = 40;
+interface ArticleFailure {
+  error: string;
+  fetchedAt: number;
+}
+
+export interface LoadArticleOptions {
+  signal?: AbortSignal;
+  onStage?: (stage: string) => void;
+}
+
+interface Extraction {
+  markdown: string;
+  title?: string;
+}
+
+const LIMIT = 80;
 const MAX_LENGTH = 120000;
+const FAILURE_TTL = 45000;
 const cache = new Map<string, CachedArticle>();
+const failures = new Map<string, ArticleFailure>();
+const pending = new Map<string, Promise<ArticleResult>>();
+let persistTimer: ReturnType<typeof setTimeout> | undefined;
 
 try {
   const stored = readJSON<Record<string, CachedArticle>>(KEYS.articleCache, {});
@@ -22,6 +42,8 @@ try {
     if (value && typeof value.markdown === "string") cache.set(url, value);
   });
 } catch { /* ignore malformed cache */ }
+
+if (typeof addEventListener !== "undefined") addEventListener("pagehide", persistCache);
 
 export function cachedArticle(url: string): CachedArticle | undefined {
   return cache.get(url);
@@ -34,6 +56,83 @@ function persistCache(): void {
   writeJSON(KEYS.articleCache, Object.fromEntries(entries));
 }
 
+function persistCacheSoon(): void {
+  if (persistTimer) clearTimeout(persistTimer);
+  persistTimer = setTimeout(() => {
+    persistTimer = undefined;
+    persistCache();
+  }, 150);
+}
+
+function rememberArticle(keys: (string | undefined)[], value: Omit<CachedArticle, "fetchedAt">): void {
+  const entry: CachedArticle = { ...value, fetchedAt: Date.now() };
+  new Set(keys.filter((key): key is string => !!key)).forEach((key) => cache.set(key, entry));
+  persistCacheSoon();
+}
+
+function failureFor(keys: (string | undefined)[]): string {
+  for (const key of keys) {
+    if (!key) continue;
+    const failure = failures.get(key);
+    if (!failure) continue;
+    if (Date.now() - failure.fetchedAt < FAILURE_TTL) return failure.error;
+    failures.delete(key);
+  }
+  return "";
+}
+
+function rememberFailure(keys: (string | undefined)[], error: string): void {
+  const entry = { error, fetchedAt: Date.now() };
+  new Set(keys.filter((key): key is string => !!key)).forEach((key) => failures.set(key, entry));
+  persistCacheSoon();
+}
+
+function abortError(): Error {
+  const error = new Error("Article load aborted");
+  error.name = "AbortError";
+  return error;
+}
+
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) throw abortError();
+}
+
+function firstSuccessful<T>(tasks: Array<(signal: AbortSignal) => Promise<T>>, signal?: AbortSignal): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    let remaining = tasks.length;
+    const errors: unknown[] = [];
+    const controller = new AbortController();
+    const relayAbort = () => controller.abort();
+    if (!remaining) {
+      reject(new Error("No article sources available"));
+      return;
+    }
+    function finish(callback: () => void): void {
+      if (settled) return;
+      settled = true;
+      signal?.removeEventListener("abort", relayAbort);
+      controller.abort();
+      callback();
+    }
+    signal?.addEventListener("abort", relayAbort, { once: true });
+    if (signal?.aborted) {
+      relayAbort();
+      finish(() => reject(abortError()));
+      return;
+    }
+    tasks.forEach((task, index) => {
+      Promise.resolve()
+        .then(() => task(controller.signal))
+        .then((value) => finish(() => resolve(value)), (error) => {
+          errors[index] = error;
+          remaining -= 1;
+          if (!remaining) finish(() => reject(errors.find(Boolean) || new Error("All article sources failed")));
+        });
+    });
+  });
+}
+
 function cleanJinaText(text: string): string {
   return text
     .replace(/^Title: .+\n/m, "")
@@ -42,37 +141,18 @@ function cleanJinaText(text: string): string {
     .trim();
 }
 
-export async function fetchJinaArticle(url: string): Promise<{ markdown: string; title?: string }> {
-  const response = await fetchWithTimeout(`https://r.jina.ai/${url}`, 25000);
+export async function fetchJinaArticle(url: string, signal?: AbortSignal): Promise<Extraction> {
+  const response = await fetchTextWithTimeout(`https://r.jina.ai/${url}`, 15000, signal);
+  throwIfAborted(signal);
   if (!response.ok) throw new Error(`Jina returned HTTP ${response.status}`);
-  const text = await response.text();
-  if (!text || text.trim().length < 100) throw new Error("Jina returned no content");
-  const titleMatch = text.match(/^Title: (.+)$/m);
-  const markdown = cleanJinaText(text);
+  if (!response.text || response.text.trim().length < 100) throw new Error("Jina returned no content");
+  const titleMatch = response.text.match(/^Title: (.+)$/m);
+  const markdown = cleanJinaText(response.text);
   if (markdown.length < 50) throw new Error("Jina returned only metadata");
   return { markdown: markdown.slice(0, MAX_LENGTH), title: titleMatch?.[1].trim() };
 }
 
-export async function extractWithReadability(url: string): Promise<{ html: string; title?: string } | null> {
-  let source = "";
-  for (const proxy of PROXIES) {
-    try {
-      const response = await fetchWithTimeout(proxy(url), 15000);
-      if (!response.ok) continue;
-      let text = await response.text();
-      if (text.trimStart().startsWith("{")) {
-        try {
-          const json = JSON.parse(text);
-          if (typeof json.contents === "string") text = json.contents;
-        } catch { /* not a JSON envelope */ }
-      }
-      if (text.trimStart().startsWith("<")) {
-        source = text;
-        break;
-      }
-    } catch { /* try next proxy */ }
-  }
-  if (!source) return null;
+function parseReadableHtml(source: string): Extraction | null {
   const doc = new DOMParser().parseFromString(source, "text/html");
   doc.querySelectorAll("script,style,noscript,nav,footer,header,aside,iframe,.ad,.ads,.advert,.social,.share,.comments,.related,.newsletter,.paywall").forEach((node) => node.remove());
   doc.querySelectorAll("img[data-src]").forEach((node) => {
@@ -83,10 +163,58 @@ export async function extractWithReadability(url: string): Promise<{ html: strin
   });
   try {
     const article = new Readability(doc, { charThreshold: 200 }).parse();
-    return article?.content ? { html: article.content, title: article.title || undefined } : null;
+    if (!article?.content) return null;
+    return { markdown: htmlToText(article.content).slice(0, MAX_LENGTH), title: article.title || undefined };
   } catch {
     return null;
   }
+}
+
+export async function extractWithReadability(url: string, signal?: AbortSignal): Promise<Extraction | null> {
+  try {
+    return await firstSuccessful(PROXIES.map((proxy) => async (childSignal) => {
+      const response = await fetchTextWithTimeout(proxy(url), 10000, childSignal);
+      throwIfAborted(childSignal);
+      if (!response.ok) throw new Error(`Proxy returned HTTP ${response.status}`);
+      let text = response.text;
+      if (text.trimStart().startsWith("{")) {
+        try {
+          const json = JSON.parse(text);
+          if (typeof json.contents === "string") text = json.contents;
+        } catch { /* not a JSON envelope */ }
+      }
+      if (!text.trimStart().startsWith("<")) throw new Error("Proxy returned no HTML");
+      const result = parseReadableHtml(text);
+      if (!result) throw new Error("Readability couldn't extract content");
+      return result;
+    }), signal);
+  } catch (error) {
+    if (isAbortError(error)) throw error;
+    return null;
+  }
+}
+
+export async function resolveHNExternalUrl(discussionUrl: string): Promise<string | null> {
+  const id = discussionUrl.match(/id=(\d+)/)?.[1];
+  if (!id) return null;
+  const item = await fetchHNItem(id);
+  const url = safeUrl(String(item?.url || ""));
+  return url && !HN_LINKS.test(url) ? url : null;
+}
+
+async function extractArticle(target: string, signal: AbortSignal | undefined, onStage?: (stage: string) => void): Promise<Extraction> {
+  return firstSuccessful([
+    async (childSignal) => {
+      onStage?.("Fetching direct article text…");
+      return fetchJinaArticle(target, childSignal);
+    },
+    async (childSignal) => {
+      onStage?.("Fetching page source…");
+      const result = await extractWithReadability(target, childSignal);
+      if (!result) throw new Error("No readable article source");
+      return result;
+    },
+  ], signal);
 }
 
 export interface ArticleResult {
@@ -95,41 +223,66 @@ export interface ArticleResult {
   title?: string;
   error?: string;
   cached?: boolean;
+  source?: "article" | "discussion";
 }
 
-export async function loadArticle(url: string, discussionUrl?: string): Promise<ArticleResult> {
-  const cached = cachedArticle(url);
-  if (cached) return { markdown: cached.markdown, title: cached.title, cached: true };
-  const errors: string[] = [];
-  try {
-    const result = await fetchJinaArticle(url);
-    cache.set(url, { ...result, fetchedAt: Date.now() });
-    persistCache();
-    return result;
-  } catch (err) {
-    errors.push(`Jina: ${normalizeError(err)}`);
+export async function loadArticle(url: string, discussionUrl?: string, options: LoadArticleOptions = {}): Promise<ArticleResult> {
+  const { signal, onStage } = options;
+  throwIfAborted(signal);
+  const keys = [url, discussionUrl].filter((key): key is string => !!key);
+  const cacheKey = keys.join("|");
+  const cached = cachedArticle(url) || (discussionUrl ? cachedArticle(discussionUrl) : undefined);
+  if (cached) return { markdown: cached.markdown, title: cached.title, cached: true, source: cached.source || (HN_LINKS.test(url) ? "discussion" : "article") };
+  const recentFailure = failureFor(keys);
+  if (recentFailure) return { error: recentFailure, cached: true };
+  if (!signal) {
+    const existing = pending.get(cacheKey);
+    if (existing) return existing;
   }
-  try {
-    const result = await extractWithReadability(url);
-    if (result) {
-      const markdown = htmlToText(result.html).slice(0, MAX_LENGTH);
-      cache.set(url, { markdown, title: result.title, fetchedAt: Date.now() });
-      persistCache();
-      return { ...result, markdown, title: result.title || undefined };
+  const task = (async (): Promise<ArticleResult> => {
+    const candidateDiscussion = discussionUrl || (HN_LINKS.test(url) ? url : "");
+    let target = url;
+    if (candidateDiscussion && HN_LINKS.test(candidateDiscussion)) {
+      onStage?.("Resolving article source…");
+      const resolved = await resolveHNExternalUrl(candidateDiscussion);
+      throwIfAborted(signal);
+      if (resolved) target = resolved;
     }
-    errors.push("Readability: couldn't extract content");
-  } catch (err) {
-    errors.push(`Readability: ${normalizeError(err)}`);
-  }
-  if (discussionUrl) {
+    const discussionOnly = HN_LINKS.test(target);
+    const errors: string[] = [];
+    onStage?.("Fetching article text…");
     try {
-      const result = await fetchJinaArticle(discussionUrl);
-      return result;
-    } catch (err) {
-      errors.push(`HN fallback: ${normalizeError(err)}`);
+      const result = await extractArticle(target, signal, onStage);
+      throwIfAborted(signal);
+      const source = discussionOnly ? "discussion" : "article";
+      rememberArticle([url, target, discussionUrl], { ...result, source });
+      return { ...result, source };
+    } catch (error) {
+      if (isAbortError(error)) throw error;
+      errors.push(normalizeError(error));
     }
+    if (candidateDiscussion && target !== candidateDiscussion) {
+      try {
+        onStage?.("Loading Hacker News discussion…");
+        const result = await fetchJinaArticle(candidateDiscussion, signal);
+        throwIfAborted(signal);
+        rememberArticle([candidateDiscussion], { ...result, source: "discussion" });
+        return { ...result, source: "discussion", error: discussionOnly ? "This is a Hacker News text post. Showing the discussion." : "Couldn't extract the linked article. Showing the Hacker News discussion instead." };
+      } catch (error) {
+        if (isAbortError(error)) throw error;
+        errors.push(`HN fallback: ${normalizeError(error)}`);
+      }
+    }
+    const error = errors.join(" · ") || "Couldn't extract the article content.";
+    rememberFailure([url, target, discussionUrl], error);
+    return { error };
+  })();
+  if (!signal) pending.set(cacheKey, task);
+  try {
+    return await task;
+  } finally {
+    if (pending.get(cacheKey) === task) pending.delete(cacheKey);
   }
-  return { error: errors.join(" · ") };
 }
 
 export function articleToFragment(article: ArticleResult): DocumentFragment | null {

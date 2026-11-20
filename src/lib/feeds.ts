@@ -2,14 +2,46 @@ import { FETCH_ALL_TIMEOUT, FETCH_TIMEOUT, HN_LINKS, PROXIES, RSS2JSON, STORY_WI
 import { asDate, safeUrl } from "./format";
 import type { Source, Story } from "./types";
 
-export async function fetchWithTimeout(url: string, timeout = FETCH_TIMEOUT): Promise<Response> {
+async function fetchWithDeadline<T>(url: string, timeout: number, signal: AbortSignal | undefined, read: (response: Response) => Promise<T>): Promise<T> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeout);
+  const relayAbort = () => controller.abort();
+  signal?.addEventListener("abort", relayAbort, { once: true });
+  if (signal?.aborted) relayAbort();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      reject(new Error(`Timeout after ${timeout}ms`));
+    }, timeout);
+  });
   try {
-    return await fetch(url, { signal: controller.signal });
+    return await Promise.race([
+      (async () => {
+        const response = await fetch(url, { signal: controller.signal });
+        return await read(response);
+      })(),
+      deadline,
+    ]);
   } finally {
-    clearTimeout(timer);
+    if (timer) clearTimeout(timer);
+    signal?.removeEventListener("abort", relayAbort);
   }
+}
+
+export async function fetchWithTimeout(url: string, timeout = FETCH_TIMEOUT, signal?: AbortSignal): Promise<Response> {
+  return fetchWithDeadline(url, timeout, signal, async (response) => response);
+}
+
+export async function fetchTextWithTimeout(url: string, timeout = FETCH_TIMEOUT, signal?: AbortSignal): Promise<{ ok: boolean; status: number; text: string }> {
+  return fetchWithDeadline(url, timeout, signal, async (response) => ({ ok: response.ok, status: response.status, text: await response.text() }));
+}
+
+export async function fetchJsonWithTimeout<T>(url: string, timeout = FETCH_TIMEOUT, signal?: AbortSignal): Promise<{ ok: boolean; status: number; json: T }> {
+  return fetchWithDeadline(url, timeout, signal, async (response) => ({ ok: response.ok, status: response.status, json: await response.json() as T }));
+}
+
+export function isAbortError(error: unknown): boolean {
+  return (error as Error)?.name === "AbortError";
 }
 
 export function htmlToText(html: string): string {
@@ -21,9 +53,9 @@ async function fetchFeedXml(url: string): Promise<string> {
   let error = "no attempt";
   for (const proxy of PROXIES) {
     try {
-      const response = await fetchWithTimeout(proxy(url));
+      const response = await fetchTextWithTimeout(proxy(url));
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      let text = await response.text();
+      let text = response.text;
       if (text.trimStart().startsWith("{")) {
         try {
           const json = JSON.parse(text);
@@ -33,14 +65,13 @@ async function fetchFeedXml(url: string): Promise<string> {
       if (text.trimStart().startsWith("<")) return text;
       throw new Error("not XML");
     } catch (err) {
-      error = (err as Error).name === "AbortError" ? "timeout" : String((err as Error).message || err);
+      error = isAbortError(err) ? "timeout" : String((err as Error).message || err);
     }
   }
   try {
-    const response = await fetchWithTimeout(RSS2JSON(url));
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const json = await response.json();
-    if (json.status !== "ok" || !Array.isArray(json.items)) throw new Error(json.message || "rss2json error");
+    const response = await fetchJsonWithTimeout<{ status: string; message?: string; items: Record<string, string>[] }>(RSS2JSON(url));
+    const json = response.json;
+    if (!response.ok || json.status !== "ok" || !Array.isArray(json.items)) throw new Error(json.message || `rss2json HTTP ${response.status}`);
     return `<rss><channel>${json.items.map((item: Record<string, string>) => `<item><title><![CDATA[${item.title || ""}]]></title><link>${item.link || ""}</link><description><![CDATA[${item.description || ""}]]></description><pubDate>${item.pubDate || ""}</pubDate></item>`).join("")}</channel></rss>`;
   } catch (err) {
     error += ` | r2j: ${(err as Error).name === "AbortError" ? "timeout" : String((err as Error).message || err)}`;
@@ -103,10 +134,9 @@ export async function fetchHNStories(source: Source): Promise<Story[]> {
   let error: unknown = new Error("no attempt");
   for (const proxy of [PROXIES[0], PROXIES[1], PROXIES[3]]) {
     try {
-      const response = await fetchWithTimeout(proxy(source.url || ""));
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const json = await response.json();
-      if (!json || !Array.isArray(json.hits)) throw new Error("unexpected response");
+      const response = await fetchJsonWithTimeout<{ hits?: Record<string, unknown>[] }>(proxy(source.url || ""));
+      const json = response.json;
+      if (!response.ok || !json || !Array.isArray(json.hits)) throw new Error("unexpected response");
       const stories = json.hits
         .filter((hit: { title?: string; objectID?: string | number }) => hit && hit.title && /^\d+$/.test(String(hit.objectID)))
         .map((hit: Record<string, unknown>) => {
@@ -133,22 +163,44 @@ export async function fetchHNStories(source: Source): Promise<Story[]> {
   throw error;
 }
 
-export async function fetchHNComments(id: string): Promise<string[]> {
+export interface HNItem {
+  url?: string;
+  children?: { text?: string }[];
+}
+
+const hnItemCache = new Map<string, HNItem>();
+const hnItemPending = new Map<string, Promise<HNItem | null>>();
+
+export async function fetchHNItem(id: string): Promise<HNItem | null> {
+  const cached = hnItemCache.get(id);
+  if (cached) return cached;
+  const pending = hnItemPending.get(id);
+  if (pending) return pending;
   const url = `https://hn.algolia.com/api/v1/items/${id}`;
-  for (const proxy of [PROXIES[0], PROXIES[1], PROXIES[3]]) {
-    try {
-      const response = await fetchWithTimeout(proxy(url));
-      if (!response.ok) continue;
-      const json = await response.json();
-      if (!json || !Array.isArray(json.children)) continue;
-      return json.children
-        .filter((child: { text?: string }) => child && typeof child.text === "string")
-        .slice(0, 5)
-        .map((child: { text: string }) => htmlToText(child.text).slice(0, 200))
-        .filter((text: string) => text.length > 10);
-    } catch { /* try next proxy */ }
-  }
-  return [];
+  const task = (async () => {
+    for (const proxy of [PROXIES[0], PROXIES[1], PROXIES[3]]) {
+      try {
+        const response = await fetchJsonWithTimeout<HNItem>(proxy(url), 9000);
+        if (!response.ok || !response.json || typeof response.json !== "object") continue;
+        hnItemCache.set(id, response.json);
+        return response.json;
+      } catch { /* try next proxy */ }
+    }
+    return null;
+  })();
+  hnItemPending.set(id, task);
+  void task.finally(() => hnItemPending.delete(id));
+  return task;
+}
+
+export async function fetchHNComments(id: string): Promise<string[]> {
+  const item = await fetchHNItem(id);
+  if (!item || !Array.isArray(item.children)) return [];
+  return item.children
+    .filter((child) => child && typeof child.text === "string")
+    .slice(0, 5)
+    .map((child) => htmlToText(child.text || "").slice(0, 200))
+    .filter((text) => text.length > 10);
 }
 
 export async function loadSource(source: Source): Promise<Story[]> {

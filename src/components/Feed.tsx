@@ -26,7 +26,10 @@ function Card({ story }: { story: Story }) {
   const startX = useSignal(0);
   const startY = useSignal(0);
   const pressTimer = useSignal<ReturnType<typeof setTimeout> | null>(null);
+  const suppressClick = useSignal(false);
+  const openedOnPointerUp = useSignal(false);
   const clearPress = () => { if (pressTimer.value) clearTimeout(pressTimer.value); pressTimer.value = null; };
+  const isControlTarget = (target: EventTarget | null) => !!(target as HTMLElement | null)?.closest?.("a,button,input,select,textarea");
   const topic = classifyTopic(story.title, story.desc);
   const age = (Date.now() - story.date.getTime()) / 3600000;
   const ageClass = age < 2 ? "age-fresh" : age < 12 ? "age-today" : age < 24 ? "age-aging" : "age-old";
@@ -35,9 +38,11 @@ function Card({ story }: { story: Story }) {
       class={`card${isRead(story.link) ? " read" : ""} ${ageClass}`}
       data-link={story.link}
       onPointerDown={(event) => {
+        suppressClick.value = false;
+        openedOnPointerUp.value = false;
         startX.value = event.clientX;
         startY.value = event.clientY;
-        if (event.pointerType === "touch") pressTimer.value = setTimeout(() => showCardMenu(story, event.clientX, event.clientY), 500);
+        if (event.pointerType === "touch") pressTimer.value = setTimeout(() => { suppressClick.value = true; showCardMenu(story, event.clientX, event.clientY); }, 500);
       }}
       onPointerMove={(event) => {
         if (!startX.value) return;
@@ -46,14 +51,27 @@ function Card({ story }: { story: Story }) {
       }}
       onPointerUp={(event) => {
         clearPress();
-        if (Math.abs(startX.value - event.clientX) > 90) { archiveStory(story.link); notify("Archived", () => { unarchiveStory(story.link); }); }
+        if (Math.abs(startX.value - event.clientX) > 90) {
+          suppressClick.value = true;
+          archiveStory(story.link);
+          notify("Archived", () => { unarchiveStory(story.link); });
+        } else if (!suppressClick.value && !isControlTarget(event.target) && event.button === 0) {
+          openedOnPointerUp.value = true;
+          void openReader(story);
+        }
         offset.value = 0;
         startX.value = 0;
         startY.value = 0;
       }}
       onPointerCancel={() => { clearPress(); offset.value = 0; startX.value = 0; startY.value = 0; }}
       onPointerLeave={clearPress}
-      onContextMenu={(event) => { event.preventDefault(); showCardMenu(story, event.clientX, event.clientY); }}
+      onContextMenu={(event) => { event.preventDefault(); suppressClick.value = true; showCardMenu(story, event.clientX, event.clientY); }}
+      onClick={(event) => {
+        if (openedOnPointerUp.value) { openedOnPointerUp.value = false; return; }
+        if (suppressClick.value) { suppressClick.value = false; return; }
+        if (isControlTarget(event.target)) return;
+        void openReader(story);
+      }}
       style={offset.value ? { transform: `translateX(${offset.value}px)` } : undefined}
     >
       <div class="swipe-hint">Archive</div>
@@ -70,7 +88,6 @@ function Card({ story }: { story: Story }) {
       <div class="cardfoot">
         {story.hn && <a class="hnstat" href={story.hn} target="_blank" rel="noopener" title="Discussion on Hacker News">{story.pts || 0} pts · {story.cmts || 0} comments</a>}
         <span class="acts">
-          <button type="button" class="open-btn" title="Open in reader" onClick={() => void openReader(story)}>Open</button>
           <button type="button" class={isLiked(story.link) ? "starbtn on" : "starbtn"} data-act="star" aria-label="Save story" title="Save" onClick={() => toggleLike(story.link)}>{isLiked(story.link) ? "★" : "☆"}</button>
           {isArchived(story.link) && <button type="button" class="starbtn" data-act="unarch" aria-label="Restore" title="Restore to feed" onClick={() => unarchiveStory(story.link)}>↩</button>}
           {view.value === "Read" && <button type="button" class="starbtn" data-act="unread" aria-label="Mark unread" title="Restore to unread" onClick={() => markUnread(story.link)}>↩</button>}
@@ -165,12 +182,12 @@ function Briefing() {
 function EmptyState({ kind }: { kind: "liked" | "read" | "archived" | "notes" | "muted" | "noresults" | "offline" }) {
   const states = {
     liked: { icon: "☆", title: "No saved stories yet", msg: "Tap the star on any headline to save it here for later.", cta: "Browse the deck" },
-    read: { icon: "📰", title: "Nothing read yet", msg: "Stories you open in the reader will show up here so you can revisit them.", cta: "Browse the deck" },
-    archived: { icon: "📂", title: "Archive is empty", msg: "Swipe a card left or right to tuck it away for later.", cta: null },
+    read: { icon: "▤", title: "Nothing read yet", msg: "Stories you open in the reader will show up here so you can revisit them.", cta: "Browse the deck" },
+    archived: { icon: "▣", title: "Archive is empty", msg: "Swipe a card left or right to tuck it away for later.", cta: null },
     notes: { icon: "✎", title: "No notes yet", msg: "Open any article, select text, and tap Note to save highlights and annotations.", cta: null },
-    muted: { icon: "🔇", title: "All sources muted", msg: "Open Sources to unmute some outlets.", cta: "Open Sources" },
-    noresults: { icon: "🔍", title: "Nothing matches your filter", msg: "Try a different search term or clear the topic filter.", cta: "Clear filters" },
-    offline: { icon: "📡", title: "No stories loaded", msg: "Your network may be blocking the public CORS proxies this app relies on. Try a different connection or VPN, then hit Refresh.", cta: null },
+    muted: { icon: "⊘", title: "All sources muted", msg: "Open Sources to unmute some outlets.", cta: "Open Sources" },
+    noresults: { icon: "⌕", title: "Nothing matches your filter", msg: "Try a different search term or clear the topic filter.", cta: "Clear filters" },
+    offline: { icon: "⌁", title: "No stories loaded", msg: "Your network may be blocking the public CORS proxies this app relies on. Try a different connection or VPN, then hit Refresh.", cta: null },
   };
   const state = states[kind];
   const action = () => {
@@ -183,7 +200,7 @@ function EmptyState({ kind }: { kind: "liked" | "read" | "archived" | "notes" | 
 
 function RadioView() {
   const stations = visibleStations.value;
-  if (!stations.length) return <div class="empty-smart"><div class="empty-icon">📻</div><p class="empty-title">No radio stations</p><p class="empty-msg">Restore or unmute a station in Sources to start listening.</p></div>;
+  if (!stations.length) return <div class="empty-smart"><div class="empty-icon">◉</div><p class="empty-title">No radio stations</p><p class="empty-msg">Restore or unmute a station in Sources to start listening.</p></div>;
   return <div class="radio-grid">{stations.map((station, index) => {
     const active = radioPlaying.value && activeStationName.value === station.name;
     return (
@@ -194,7 +211,7 @@ function RadioView() {
         style={{ "--rc-color": station.color || "#4a90d9", "--rc-color2": station.color || "#2196f3" } as Record<string, string>}
         onClick={() => { void playStation(station); openRadioFlow(index); }}
       >
-        <div class="radio-card-gradient"><span class="radio-card-icon">📻</span><div class="radio-card-eq"><span /><span /><span /><span /></div></div>
+        <div class="radio-card-gradient"><span class="radio-card-icon">◉</span><div class="radio-card-eq"><span /><span /><span /><span /></div></div>
         <div class="radio-card-body"><h3 class="radio-card-name">{station.name}</h3><p class="radio-card-desc">{station.desc || "Live radio stream"}</p><div class="radio-card-meta"><span class="radio-card-cat">{station.category || "Radio"}</span><span class="radio-card-status">Tap to play</span></div></div>
       </article>
     );
@@ -227,10 +244,10 @@ function NotesView() {
         return (
           <article class="card" data-link={note.link} style={{ cursor: "pointer" }} onClick={openNote}>
             <div class="meta"><span class="src-dot" style={{ background: hashColor(note.src) }} /><span class="badge">{note.src}</span><span class="time">{relativeTime(new Date(note.createdAt))}</span></div>
-            <a class="title" href={note.link} style={{ "font-size": "13px" }} onClick={(event) => { event.preventDefault(); openNote(); }}>{note.title}</a>
+            <a class="title" href={note.link} onClick={(event) => { event.preventDefault(); openNote(); }}>{note.title}</a>
             <div class="ann-quote">{note.quote}</div>
             <div class="ann-note">{note.note}</div>
-            <div class="cardfoot"><button type="button" class="open-btn" onClick={(event) => { event.stopPropagation(); openNote(); }}>Open ↗</button><button type="button" class="note-delete" onClick={(event) => { event.stopPropagation(); deleteNote(note.link, index); notify("Note deleted"); }}>Delete</button></div>
+            <div class="cardfoot"><button type="button" class="note-open" onClick={(event) => { event.stopPropagation(); openNote(); }}>Open ↗</button><button type="button" class="note-delete" onClick={(event) => { event.stopPropagation(); deleteNote(note.link, index); notify("Note deleted"); }}>Delete</button></div>
           </article>
         );
       })}
